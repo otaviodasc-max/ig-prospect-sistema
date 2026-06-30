@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IGProspect · Sistema</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#6366F1">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="IGProspect">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <!-- AUTH -->
+  <div id="auth" class="auth-wrap">
+    <div class="auth-bg"></div>
+    <div class="auth-card" id="auth-card"><!-- preenchido por JS --></div>
+  </div>
+
+  <!-- ONBOARDING -->
+  <div id="onboard" class="auth-wrap hidden">
+    <div class="auth-bg"></div>
+    <div class="auth-card" id="onboard-card"></div>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="app">
+    <aside class="sidebar">
+      <div class="s-logo">
+        <div class="logo-ico"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10" r="6"/><line x1="14.8" y1="14.3" x2="20" y2="19.5"/><circle cx="10.5" cy="8.2" r="1.7"/><path d="M7.4 12.7a3.3 3.3 0 0 1 6.2 0"/></svg></div>
+        <div><div class="l1">IGProspect</div><div class="l2">Sistema de Leads</div></div>
+      </div>
+      <nav class="s-nav" id="s-nav"></nav>
+      <div class="s-foot">
+        <div class="s-user" id="s-user">—</div>
+        <div class="s-org" id="s-org">—</div>
+        <div class="logout" id="logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sair</div>
+      </div>
+    </aside>
+    <div class="sb-overlay" id="sb-overlay"></div>
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menu-btn" aria-label="Abrir menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <div class="tb-info"><div class="tb-title" id="tb-title">Dashboard</div><div class="tb-sub" id="tb-sub"></div></div>
+        <div class="period-tabs" id="period-tabs" style="display:none">
+          <div class="period-tab active" data-period="all">Tudo</div>
+          <div class="period-tab" data-period="30">30d</div>
+          <div class="period-tab" data-period="7">7d</div>
+          <div class="period-tab" data-period="1">Hoje</div>
+        </div>
+      </header>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div class="toast-ctr" id="toast-ctr"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
