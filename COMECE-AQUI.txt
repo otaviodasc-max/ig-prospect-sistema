@@ -1,0 +1,44 @@
+=====================================================================
+ IGProspect SaaS — COMECE AQUI (3 passos, ~5 minutos)
+=====================================================================
+O sistema já está pronto e conectado ao seu Supabase. Faltam só 3 passinhos
+que precisam ser feitos por você (são nas SUAS contas). Siga na ordem.
+
+---------------------------------------------------------------------
+PASSO 1 — Desligar a confirmação de e-mail (no Supabase) · ~30s
+---------------------------------------------------------------------
+Assim você e os outros entram na hora, sem precisar clicar em link de e-mail.
+1. Acesse https://supabase.com e abra seu projeto "igprospect".
+   (Dica: se a tela bugar, desligue a tradução do Chrome ou use guia anônima.)
+2. Menu: Authentication > Sign In / Providers > Email.
+3. Desligue a opção "Confirm email" (Confirmar e-mail) e clique em Save.
+
+---------------------------------------------------------------------
+PASSO 2 — Publicar o sistema (gera o link de acesso) · ~1 min
+---------------------------------------------------------------------
+1. Abra: https://app.netlify.com/drop
+2. Arraste a PASTA inteira "igprospect-saas" (esta aqui) para dentro da página.
+3. Em alguns segundos ele mostra um link, tipo:  https://algo-aleatorio.netlify.app
+4. Esse é o link do seu sistema. Guarde e compartilhe com quem for usar.
+   (Depois, se quiser um nome bonito/domínio próprio, a gente ajusta.)
+
+---------------------------------------------------------------------
+PASSO 3 — Criar sua conta e seu espaço · ~1 min
+---------------------------------------------------------------------
+1. Abra o link do Passo 2.
+2. Clique em "Criar conta" e cadastre-se com SEU e-mail e uma senha.
+3. Em "Seu espaço", clique em "Criar espaço" e dê um nome (ex.: "Equipe da Chefe").
+   -> Você vira o DONO desse espaço.
+4. Para virar ADMIN da plataforma (ver/gerenciar todos os espaços), rode UMA
+   vez no Supabase (SQL Editor), trocando pelo seu e-mail:
+        update public.profiles set platform_role = 'admin' where email = 'SEU_EMAIL';
+
+PRONTO! A partir daqui:
+- Sua chefe entra no mesmo link, cria a conta dela e usa o CÓDIGO DE CONVITE
+  do seu espaço (aparece em Configurações) para entrar no MESMO espaço que você.
+- Sua cunhada entra no mesmo link, cria a conta dela e clica em "Criar espaço"
+  (um espaço separado, só dela e da funcionária dela).
+
+=====================================================================
+Qualquer passo que travar, me chama que eu resolvo.
+=====================================================================

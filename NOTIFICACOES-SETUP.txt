@@ -1,0 +1,88 @@
+==========================================================
+  IGProspect — Notificações Push (tela do celular)
+  Guia de ativação. Faça na ordem. Só precisa fazer 1 vez.
+==========================================================
+
+O QUE FOI ADICIONADO
+- Notificação no celular da equipe quando:
+    • um lead do Instagram envia contato;
+    • alguém manda mensagem no chat da aba Equipe.
+- Quem gerou o evento NÃO é notificado (só o resto da equipe).
+- Funciona com o sistema fechado (Web Push + app instalado na tela inicial).
+
+----------------------------------------------------------
+PASSO 1 — Banco (Supabase)
+----------------------------------------------------------
+No Supabase > SQL Editor, rode o arquivo:
+    supabase-push.sql
+(cria a tabela push_subscriptions com RLS).
+
+----------------------------------------------------------
+PASSO 2 — Publicar a Edge Function "notify"
+----------------------------------------------------------
+A função fica em: supabase/functions/notify/index.ts
+
+OPÇÃO A — pelo computador (Supabase CLI):
+  1) Instale o CLI: https://supabase.com/docs/guides/cli
+  2) No terminal, dentro da pasta igprospect-saas:
+         supabase login
+         supabase link --project-ref guuecwrhwuzbwfetehix
+         supabase functions deploy notify --no-verify-jwt
+     (--no-verify-jwt porque a própria função valida o token)
+
+OPÇÃO B — pelo painel (sem CLI):
+  Dashboard > Edge Functions > Create a function > nome "notify"
+  > cole o conteúdo de index.ts > Deploy.
+
+----------------------------------------------------------
+PASSO 3 — Secrets da função (chaves VAPID)
+----------------------------------------------------------
+Dashboard > Project Settings > Edge Functions > Secrets (ou via CLI).
+Adicione EXATAMENTE estes 3:
+
+  VAPID_PUBLIC_KEY  = BA1Oos8-GIpl3JxcOD5yRJt5uf9H_1LaOt7BekaTYvoIZUehfrUt5lEGZmUkxUG3KDCUB3LotlIWEg27KDQrIQQ
+
+  VAPID_PRIVATE_KEY = ZjW3KBTXuXRiAd6hSKXQfHktZyE-rN0ZCLHJlUmtQik
+
+  VAPID_SUBJECT     = mailto:rep.jacksoncorrea@gmail.com
+
+(Pelo CLI seria:
+   supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:...)
+
+IMPORTANTE: a chave PÚBLICA já está no config.js (pode ficar exposta).
+A chave PRIVADA fica SÓ aqui no Supabase. Nunca coloque a privada no site.
+
+----------------------------------------------------------
+PASSO 4 — Republicar o site na Netlify
+----------------------------------------------------------
+Suba a pasta igprospect-saas inteira (agora tem arquivos novos:
+sw.js, manifest.json, os ícones .png). O Service Worker precisa
+estar na raiz do site (já está).
+
+----------------------------------------------------------
+PASSO 5 — Cada pessoa ativa no aparelho dela (1 vez)
+----------------------------------------------------------
+ANDROID (Chrome):
+  1) Abra https://igprospect.netlify.app/ e faça login.
+  2) (Recomendado) Menu ⋮ > "Adicionar à tela inicial".
+  3) Configurações (engrenagem) > card Notificações > "Ativar notificações"
+     > Permitir.
+
+IPHONE (Safari) — OBRIGATÓRIO instalar antes:
+  1) Abra o site no Safari.
+  2) Botão Compartilhar (quadrado com seta) > "Adicionar à Tela de Início".
+  3) Abra o app PELO ÍCONE novo (não pelo Safari).
+  4) Configurações > card Notificações > "Ativar notificações" > Permitir.
+  (Sem instalar na tela inicial, o iPhone NÃO entrega push. É regra da Apple.)
+
+----------------------------------------------------------
+TESTE
+----------------------------------------------------------
+Peça para alguém da equipe (que ativou) deixar o celular bloqueado.
+No seu acesso, mande uma mensagem no chat da Equipe OU mova um lead
+para "Enviou Contato". A notificação deve aparecer no celular do colega.
+(Você não recebe a sua própria — é o esperado.)
+
+Se não chegar: confira PASSO 3 (secrets), veja os logs em
+Dashboard > Edge Functions > notify > Logs.
+==========================================================

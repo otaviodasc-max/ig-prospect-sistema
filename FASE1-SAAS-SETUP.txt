@@ -1,0 +1,62 @@
+=====================================================================
+ IGProspect SaaS — Fase 1 · Passo a passo (parte 1: criar a base)
+=====================================================================
+
+COMO VAI FUNCIONAR (modelo de "espaços de trabalho")
+- Cada chefia é um "espaço" (organização) isolado:
+    • Espaço 1: você + sua chefe  → compartilham os mesmos leads/ligações.
+    • Espaço 2: sua cunhada + a funcionária dela → dados separados, ela só vê os dela.
+- Cada pessoa entra com a PRÓPRIA conta (e-mail/senha).
+- Para juntar 2 pessoas no MESMO espaço, o "dono" do espaço passa um
+  CÓDIGO DE CONVITE (gerado automaticamente) e a outra pessoa entra com ele.
+- Você é o ADMIN DA PLATAFORMA: enxerga e gerencia todos os espaços.
+- Banco central: Supabase (Postgres). Hospedagem do app: Vercel. Tudo no
+  plano grátis para começar.
+
+Esta parte 1 cria a fundação (o banco). Você faz uma vez. Depois eu construo o app.
+
+---------------------------------------------------------------------
+PASSO 1 — Criar a conta e o projeto no Supabase
+---------------------------------------------------------------------
+1. Acesse https://supabase.com > "Start your project" (grátis).
+2. "New project":
+   - Name: igprospect
+   - Database Password: crie uma senha forte e GUARDE.
+   - Region: "South America (São Paulo)".
+3. Aguarde ~2 minutos.
+
+---------------------------------------------------------------------
+PASSO 2 — Rodar o esquema do banco
+---------------------------------------------------------------------
+1. Menu esquerdo: "SQL Editor" > "New query".
+2. Abra "supabase-schema.sql" (nesta pasta), copie TUDO, cole e clique "Run".
+   Deve aparecer "Success". Isso cria: organizações, perfis, leads, ligações,
+   a segurança por organização (RLS) e as visões do painel admin.
+
+---------------------------------------------------------------------
+PASSO 3 — Conferir o login por e-mail/senha
+---------------------------------------------------------------------
+1. "Authentication" > "Providers" > confirme que "Email" está ativado
+   (vem ligado por padrão).
+2. Opcional (recomendado para facilitar testes): "Authentication" >
+   "Providers" > "Email" > desligue "Confirm email" por enquanto, para
+   não precisar confirmar e-mail a cada cadastro de teste.
+   (O Login com Google entra numa próxima etapa, quando você quiser.)
+
+---------------------------------------------------------------------
+PASSO 4 — Me enviar 2 informações (públicas e seguras)
+---------------------------------------------------------------------
+"Project Settings" (engrenagem) > "API". Copie:
+   • Project URL      (ex.: https://abcdxyz.supabase.co)
+   • anon public key  (chave longa marcada como "anon" / "public")
+
+Pode mandar essas duas sem medo — são públicas (a proteção real é o RLS
+que já criamos). NÃO envie a "service_role key" nem a senha do banco.
+
+Com isso eu configuro e construo o app web (login, criação/entrada em
+espaço por código, telas de Leads/Ligações/CRM no visual atual, e o painel
+admin), publico na Vercel e a gente testa de verdade.
+
+=====================================================================
+Próximo passo depois disto: eu monto o aplicativo web e te mando o link.
+=====================================================================
