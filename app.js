@@ -18,37 +18,63 @@ applyTheme(currentTheme());
 
 const S = { session:null, profile:null, org:null, route:'dashboard', period:'all',
   leads:[], calls:[], deals:[], messages:[], unread:0, authMode:'login',
-  lf:{ q:'', note:'', status:'', niche:'', tipo:'', sort:'newest', page:1, ag:'' },
+  pipelines:[], niches:[], dealStagesCfg:null, callOutcomesCfg:null,
+  lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
-  crmTipo:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() } };
+  crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() } };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
-// Todo o funil/terminologia abaixo é derivado daqui — nunca mais hardcoded.
+// Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
+// enquanto a org ainda não tem customização própria salva no banco.
 function MOD(){ const id=(S.org&&S.org.module_id)||'consorcio'; return (window.IGP_MODULES&&window.IGP_MODULES[id])||window.IGP_MODULES.consorcio; }
-const STS       = () => MOD().prospectFunnel.stages;
-const SM         = () => MOD().prospectFunnel.meta;
-const SC         = () => MOD().prospectFunnel.colors;
-const CALL_OUT = ['interessado','retornar','sem_interesse','nao_atendeu','fechado'];
-const COM = { interessado:'Interessado', retornar:'Retornar depois', sem_interesse:'Sem interesse', nao_atendeu:'Não atendeu', fechado:'Fechou negócio' };
-const CC = { interessado:'#10B981', retornar:'#F59E0B', sem_interesse:'#EF4444', nao_atendeu:'#64748B', fechado:'#6366F1' };
-const DEAL_STS   = () => MOD().dealFunnel.stages;
-const DEAL_SM    = () => MOD().dealFunnel.meta;
-const DEAL_SC    = () => MOD().dealFunnel.colors;
-const WON        = () => MOD().dealFunnel.wonStage;
-const LOST       = () => MOD().dealFunnel.lostStage;
-const CARD_TYPES = () => MOD().cardTypes;
-// Funil próprio dos EMPRESÁRIOS no CRM (já são contatos, não usam prospecção)
-// — só existe em módulos que definem empFunnel (hoje, só Consórcio).
-const hasEmpFunnel = () => !!(MOD().empFunnel);
-const EMP_STS = () => (MOD().empFunnel && MOD().empFunnel.stages) || [];
-const EMP_SM  = () => (MOD().empFunnel && MOD().empFunnel.meta) || {};
-const EMP_SC  = () => (MOD().empFunnel && MOD().empFunnel.colors) || {};
-// Mapas combinados (prospecção + empresário) p/ rótulos/cores sem quebrar
-const ALL_SM = () => ({ ...SM(), ...EMP_SM() });
-const ALL_SC = () => ({ ...SC(), ...EMP_SC() });
-const stLabel = st => (ALL_SM()[st] && ALL_SM()[st].label) || st || '—';
-const stShort = st => (ALL_SM()[st] && ALL_SM()[st].short) || stLabel(st);
+
+/* ---------- Funis de lead (org_pipelines) — customizáveis pelo dono ---------- */
+function defaultPipeline(){ return S.pipelines.find(p=>p.is_default) || S.pipelines[0] || null; }
+function pipelineById(id){ return (id && S.pipelines.find(p=>p.id===id)) || defaultPipeline(); }
+// Fallback (org sem pipelines carregados ainda, ex. antes do backfill rodar).
+function fallbackStages(){ return MOD().prospectFunnel.stages.map((k,i)=>({key:k,label:MOD().prospectFunnel.meta[k].label,short:MOD().prospectFunnel.meta[k].short,color:MOD().prospectFunnel.colors[k],order:i})); }
+function stagesOf(p){ const raw=(p&&p.stages&&p.stages.length)?p.stages:fallbackStages(); return raw.slice().sort((a,b)=>a.order-b.order); }
+const STS = (p=defaultPipeline()) => stagesOf(p).map(s=>s.key);
+const SM  = (p=defaultPipeline()) => Object.fromEntries(stagesOf(p).map(s=>[s.key,{label:s.label,short:s.short||s.label}]));
+const SC  = (p=defaultPipeline()) => Object.fromEntries(stagesOf(p).map(s=>[s.key,s.color]));
+// Rótulo/cor de um lead específico, respeitando o funil AO QUAL ELE PERTENCE
+// (leads de funis diferentes podem ter status com o mesmo nome e cores diferentes).
+function leadPipeline(l){ return pipelineById(l&&l.pipeline_id); }
+function stLabel(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].label)||st||'—'; }
+function stShort(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].short)||stLabel(l); }
+function stColor(l){ const st=(l&&l.status)||'novo'; return SC(leadPipeline(l))[st]||'#64748B'; }
+// Um lead "converteu" quando chega na ÚLTIMA etapa do funil ao qual pertence
+// (era hardcoded para status==='contato'; agora vale para qualquer funil customizado).
+function isLastStage(status, pipeline){ const stages=STS(pipeline); return stages.length>0 && stages[stages.length-1]===status; }
+
+/* ---------- Desfechos de ligação (org_call_outcomes) — customizáveis pelo dono ---------- */
+const DEFAULT_CALL_OUTCOMES = [
+  {key:'interessado',label:'Interessado',color:'#10B981',order:0},
+  {key:'retornar',label:'Retornar depois',color:'#F59E0B',order:1},
+  {key:'sem_interesse',label:'Sem interesse',color:'#EF4444',order:2},
+  {key:'nao_atendeu',label:'Não atendeu',color:'#64748B',order:3},
+  {key:'fechado',label:'Fechou negócio',color:'#6366F1',order:4},
+];
+function callOutcomesRaw(){ const o=S.callOutcomesCfg&&S.callOutcomesCfg.outcomes; return (o&&o.length)?o:DEFAULT_CALL_OUTCOMES; }
+const CALL_OUT = () => callOutcomesRaw().slice().sort((a,b)=>a.order-b.order).map(o=>o.key);
+const COM = () => Object.fromEntries(callOutcomesRaw().map(o=>[o.key,o.label]));
+const CC  = () => Object.fromEntries(callOutcomesRaw().map(o=>[o.key,o.color]));
+
+/* ---------- Estágios de negociação (org_deal_stages) — customizáveis pelo dono ---------- */
+function dealStagesRaw(){
+  const cfg=S.dealStagesCfg&&S.dealStagesCfg.stages;
+  if(cfg&&cfg.length) return cfg;
+  const f=MOD().dealFunnel; return f.stages.map((k,i)=>({key:k,label:f.meta[k].label,short:f.meta[k].short,color:f.colors[k],order:i}));
+}
+const DEAL_STS   = () => dealStagesRaw().slice().sort((a,b)=>a.order-b.order).map(s=>s.key);
+const DEAL_SM    = () => Object.fromEntries(dealStagesRaw().map(s=>[s.key,{label:s.label,short:s.short||s.label}]));
+const DEAL_SC    = () => Object.fromEntries(dealStagesRaw().map(s=>[s.key,s.color]));
+const WON        = () => (S.dealStagesCfg&&S.dealStagesCfg.won_stage) || MOD().dealFunnel.wonStage;
+const LOST       = () => (S.dealStagesCfg&&S.dealStagesCfg.lost_stage) || MOD().dealFunnel.lostStage;
+const CARD_TYPES = () => (S.dealStagesCfg&&S.dealStagesCfg.card_types&&S.dealStagesCfg.card_types.length) ? S.dealStagesCfg.card_types : MOD().cardTypes;
+
 const AGENDOR_BASE = 'https://api.agendor.com.br/v3';
+const slugify = s => String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||('etapa_'+Date.now());
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -296,8 +322,8 @@ async function doJoinOrg(){ const code=$('ob-code').value.trim(); if(!code) retu
 /* =====================================================================
    DATA LAYER (mapeia snake_case <-> camelCase)
 ===================================================================== */
-const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, customFields:r.custom_fields||{} });
-const leadToRow = l => { const o={ name:l.name, username:l.username, phone:l.phone, email:l.email, niche:l.niche, status:l.status, tipo:l.tipo, notes:l.notes, followers:l.followers, following:l.following }; if(l.source)o.source=l.source; if(l.customFields)o.custom_fields=l.customFields; return o; };
+const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', pipeline_id:r.pipeline_id, funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, customFields:r.custom_fields||{} });
+const leadToRow = l => { const o={ name:l.name, username:l.username, phone:l.phone, email:l.email, niche:l.niche, status:l.status, tipo:l.tipo, notes:l.notes, followers:l.followers, following:l.following }; if(l.pipeline_id!==undefined)o.pipeline_id=l.pipeline_id; if(l.source)o.source=l.source; if(l.customFields)o.custom_fields=l.customFields; return o; };
 const callFromRow = r => ({ id:r.id, leadId:r.lead_id, name:r.name, phone:r.phone, outcome:r.outcome||'nao_atendeu', duration:r.duration, at:r.at, notes:r.notes });
 const callToRow = c => ({ lead_id:c.leadId||null, name:c.name, phone:c.phone, outcome:c.outcome, duration:c.duration, at:c.at, notes:c.notes });
 const dealFromRow = r => ({ id:r.id, orgId:r.org_id, leadId:r.lead_id, createdBy:r.created_by, prospectorName:r.prospector_name, status:r.status||'contato', cardType:r.card_type, cardValue:r.card_value, commissionValue:r.commission_value, commissionPct:r.commission_pct, commissionPaid:!!r.commission_paid, notes:r.notes, closedAt:r.closed_at, createdAt:r.created_at, leadName:r.leads&&r.leads.name, leadUsername:r.leads&&r.leads.username, leadPhone:r.leads&&r.leads.phone, leadNiche:r.leads&&r.leads.niche });
@@ -312,6 +338,15 @@ async function loadCalls(){ const { data, error }=await fetchAll(()=>sb.from('ca
 async function loadDeals(){ const { data, error }=await fetchAll(()=>sb.from('deals').select('*, leads(name,username,phone,niche)').order('created_at',{ascending:false})); if(error){ S.deals=[]; return; } S.deals=(data||[]).map(dealFromRow); }
 const msgFromRow = r => ({ id:r.id, orgId:r.org_id, userId:r.user_id, author:r.author_name, body:r.body, at:r.created_at });
 async function loadMessages(){ const { data, error }=await sb.from('messages').select('*').order('created_at',{ascending:false}).limit(200); if(error){ S.messages=[]; return; } S.messages=(data||[]).map(msgFromRow).reverse(); }
+
+// Customização por org (Personalização): funis, nichos, estágios de negociação e desfechos de ligação.
+// Se as tabelas ainda não foram migradas (supabase-pipelines.sql não rodou), os arrays ficam vazios
+// e os helpers (STS/DEAL_STS/CALL_OUT etc.) caem no fallback do módulo — nada quebra.
+async function loadPipelines(){ const { data, error }=await sb.from('org_pipelines').select('*').order('order_idx'); if(error){ S.pipelines=[]; return; } S.pipelines=data||[]; }
+async function loadNiches(){ const { data, error }=await sb.from('org_niches').select('*').order('order_idx'); if(error){ S.niches=[]; return; } S.niches=data||[]; }
+async function loadDealStagesCfg(){ if(!S.org) return; const { data }=await sb.from('org_deal_stages').select('*').eq('org_id',S.org.id).maybeSingle(); S.dealStagesCfg=data||null; }
+async function loadCallOutcomesCfg(){ if(!S.org) return; const { data }=await sb.from('org_call_outcomes').select('*').eq('org_id',S.org.id).maybeSingle(); S.callOutcomesCfg=data||null; }
+async function loadOrgConfig(){ await Promise.all([loadPipelines(), loadNiches(), loadDealStagesCfg(), loadCallOutcomesCfg()]); }
 
 /* =====================================================================
    METRICS / CHARTS (portados do original)
@@ -385,7 +420,7 @@ function renderDashboard(){
   const leads=inPeriod(S.leads,S.period);
   const c=metrics(leads), total=leads.length, pct=n=>total?Math.round(n/total*100):0;
   const KICO={ novo:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', chamado:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', respondeu:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', contato:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' };
-  const sts=STS(), sm=SM(), sc=SC(), allSc=ALL_SC();
+  const sts=STS(), sm=SM(), sc=SC();
   const kpis=[ {k:'novo',cls:'kk-n',lbl:'Total de Leads',val:total,p:null,sub:`${S.leads.length} no total`}, {k:'chamado',cls:'kk-c',lbl:'Chamados',val:c.chamado,p:pct(c.chamado),sub:'do total'}, {k:'respondeu',cls:'kk-r',lbl:'Responderam',val:c.respondeu,p:pct(c.respondeu),sub:'dos chamados'}, {k:'contato',cls:'kk-o',lbl:'Convertidos',val:c.contato,p:pct(c.contato),sub:'taxa de conv.'} ];
   const kpiHtml=kpis.map(x=>`<div class="kpi-card ${x.cls}"><div class="kpi-top"><div class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${KICO[x.k]}</svg></div></div><div class="kpi-lbl">${x.lbl}</div><div class="kpi-val">${x.val}</div><div class="kpi-sub">${x.p!=null?`<span class="kpi-pct">${x.p}%</span>`:''}${x.sub}</div></div>`).join('');
   const maxC=Math.max(...sts.map(s=>c[s]||0),1);
@@ -393,10 +428,11 @@ function renderDashboard(){
   const niches=topNiches(leads),maxN=(niches[0]&&niches[0][1])||1;
   const nichesHtml=niches.length?niches.map(([nm,n],i)=>`<div class="niche-row"><span class="niche-rank">${i+1}</span><span class="niche-nm" title="${esc(nm)}">${esc(nm)}</span><div class="niche-track"><div class="niche-fill" style="width:${Math.round(n/maxN*100)}%"></div></div><span class="niche-cnt">${n}</span></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);text-align:center;padding:14px 0">Sem dados de nicho</div>';
   const recent=[...leads].sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0)).slice(0,6);
-  const recentHtml=recent.length?recent.map(l=>`<div class="rl-item"><div class="avatar">${esc(ini(l.name||l.username))}</div><div class="rl-info"><div class="rl-name">${esc(l.name||l.username||'—')}</div><div class="rl-user">@${esc(l.username||'—')}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="badge" style="background:${(allSc[l.status||'novo']||'#64748B')}22;color:${allSc[l.status||'novo']||'#94A3B8'}">${stShort(l.status||'novo')}</span><span class="rl-time">${timeAgo(l.addedAt)}</span></div></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);padding:12px 0">Nenhum lead no período.</div>';
+  const recentHtml=recent.length?recent.map(l=>`<div class="rl-item"><div class="avatar">${esc(ini(l.name||l.username))}</div><div class="rl-info"><div class="rl-name">${esc(l.name||l.username||'—')}</div><div class="rl-user">@${esc(l.username||'—')}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)}">${stShort(l)}</span><span class="rl-time">${timeAgo(l.addedAt)}</span></div></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);padding:12px 0">Nenhum lead no período.</div>';
   const donutLgd=sts.map(s=>{ const n=c[s]||0; return `<div class="donut-row"><div class="donut-dot" style="background:${sc[s]}"></div><span class="donut-lbl">${sm[s].label}</span><span class="donut-val">${n}</span><span class="donut-pct">${pct(n)}%</span></div>`; }).join('');
   const callsP=inPeriod(S.calls,S.period,'at'), cm=callMetrics(callsP);
-  const callsCard=`<div class="card"><div class="card-hd"><div class="card-title">Ligações</div><span class="text-link" style="font-size:.69rem" id="see-calls">Ver todas →</span></div><div class="card-bd"><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:11px"><span style="font-family:'Plus Jakarta Sans';font-size:1.9rem;font-weight:800;line-height:1">${callsP.length}</span><span style="font-size:.7rem;color:var(--t3)">no período</span></div><div style="display:flex;flex-direction:column;gap:7px">${CALL_OUT.map(o=>cm[o]?`<div class="donut-row"><div class="donut-dot" style="background:${CC[o]}"></div><span class="donut-lbl">${COM[o]}</span><span class="donut-val">${cm[o]}</span></div>`:'').join('')||'<div style="font-size:.72rem;color:var(--t3)">Nenhuma ligação no período.</div>'}</div></div></div>`;
+  const callOut=CALL_OUT(), callLbl=COM(), callClr=CC();
+  const callsCard=`<div class="card"><div class="card-hd"><div class="card-title">Ligações</div><span class="text-link" style="font-size:.69rem" id="see-calls">Ver todas →</span></div><div class="card-bd"><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:11px"><span style="font-family:'Plus Jakarta Sans';font-size:1.9rem;font-weight:800;line-height:1">${callsP.length}</span><span style="font-size:.7rem;color:var(--t3)">no período</span></div><div style="display:flex;flex-direction:column;gap:7px">${callOut.map(o=>cm[o]?`<div class="donut-row"><div class="donut-dot" style="background:${callClr[o]}"></div><span class="donut-lbl">${callLbl[o]}</span><span class="donut-val">${cm[o]}</span></div>`:'').join('')||'<div style="font-size:.72rem;color:var(--t3)">Nenhuma ligação no período.</div>'}</div></div></div>`;
 
   if(S.leads.length===0){
     $('content').innerHTML=`<div class="card" style="padding:28px;text-align:center"><div class="empty-ico" style="margin:0 auto 14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="empty-title">Bem-vindo, ${esc(S.profile&&S.profile.name||'')}!</div><div class="empty-sub" style="margin-bottom:14px">Você está no espaço <b>${esc(S.org&&S.org.name||'')}</b>. Cadastre seu primeiro lead para ver os gráficos.</div><button class="btn btn-primary" id="wb-add">Cadastrar primeiro lead</button></div>`;
@@ -450,7 +486,7 @@ function filteredLeads(){
   if(nq) leads=leads.filter(l=>(l.notes||'').toLowerCase().includes(nq));
   if(S.lf.status) leads=leads.filter(l=>(l.status||'novo')===S.lf.status);
   if(S.lf.niche) leads=leads.filter(l=>(l.niche||'Sem nicho')===S.lf.niche);
-  if(S.lf.tipo) leads=leads.filter(l=>(l.tipo||'comum')===S.lf.tipo);
+  if(S.lf.pipeline) leads=leads.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===S.lf.pipeline);
   if(S.lf.ag==='in') leads=leads.filter(l=>!!l.agendorPersonId);
   else if(S.lf.ag==='out') leads=leads.filter(l=>!l.agendorPersonId);
   if(S.lf.sort==='oldest') return [...leads].sort((a,b)=>new Date(a.addedAt||0)-new Date(b.addedAt||0));
@@ -461,10 +497,10 @@ function renderLeads(){
   const all=filteredLeads(); const pages=Math.max(1,Math.ceil(all.length/PAGE_SIZE)); S.lf.page=Math.min(S.lf.page,pages);
   const slice=all.slice((S.lf.page-1)*PAGE_SIZE,S.lf.page*PAGE_SIZE);
   const niches=[...new Set(S.leads.map(l=>l.niche||'').filter(Boolean))].sort();
-  const rows=slice.length?slice.map(l=>{ const st=l.status||'novo'; return `<tr data-id="${esc(l.id)}"${S.sel.mode&&S.sel.ids.has(l.id)?' style="background:rgba(99,102,241,.08)"':''}>
+  const rows=slice.length?slice.map(l=>{ const pl=leadPipeline(l); return `<tr data-id="${esc(l.id)}"${S.sel.mode&&S.sel.ids.has(l.id)?' style="background:rgba(99,102,241,.08)"':''}>
     ${selCell(l.id)}
-    <td><div class="lead-cell"><div class="avatar">${esc(ini(l.name||l.username))}</div><div><div class="lead-nm">${esc(l.name||'—')}${l.tipo==='empresario'?' <span class="tag" style="background:rgba(245,158,11,.14);color:#FCD34D;border-color:rgba(245,158,11,.25)">🏢</span>':''}</div><div class="lead-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}${agendorOn()&&l.agendorPersonId?' <span style="font-size:.63rem;color:#6EE7B7;font-weight:600;white-space:nowrap">☁ Agendor</span>':''}</div></div></div></td>
-    <td><span class="badge" style="background:${(ALL_SC()[st]||'#64748B')}22;color:${ALL_SC()[st]||'#94A3B8'};border:1px solid ${(ALL_SC()[st]||'#64748B')}44">${stLabel(st)}</span></td>
+    <td><div class="lead-cell"><div class="avatar">${esc(ini(l.name||l.username))}</div><div><div class="lead-nm">${esc(l.name||'—')}${S.pipelines.length>1?` <span class="tag" style="background:rgba(99,102,241,.14);color:#A5B4FC;border-color:rgba(99,102,241,.25)">${esc(pl?pl.icon:'')} ${esc(pl?pl.name:'')}</span>`:''}</div><div class="lead-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}${agendorOn()&&l.agendorPersonId?' <span style="font-size:.63rem;color:#6EE7B7;font-weight:600;white-space:nowrap">☁ Agendor</span>':''}</div></div></div></td>
+    <td><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)};border:1px solid ${stColor(l)}44">${stLabel(l)}</span></td>
     <td>${l.niche?`<span class="tag">${esc(l.niche)}</span>`:'<span style="color:var(--t3)">—</span>'}</td>
     <td style="color:var(--t2);font-size:.73rem">${fmtDate(l.addedAt)}</td>
     <td style="font-size:.72rem;color:var(--t3);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.notes||'—')}</td>
@@ -472,8 +508,10 @@ function renderLeads(){
     :`<tr><td colspan="${S.sel.mode?7:6}"><div class="empty-state"><div class="empty-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div><div class="empty-title">Nenhum lead encontrado</div><div class="empty-sub">Tente outros filtros ou cadastre um lead.</div></div></td></tr>`;
   let pag=''; if(pages>1){ pag+=`<button class="pag-btn" data-pg="${S.lf.page-1}" ${S.lf.page<=1?'disabled':''}>‹</button>`; for(let i=1;i<=pages;i++){ if(i===1||i===pages||Math.abs(i-S.lf.page)<=1)pag+=`<button class="pag-btn${i===S.lf.page?' active':''}" data-pg="${i}">${i}</button>`; else if(Math.abs(i-S.lf.page)===2)pag+='<span style="color:var(--t3);padding:0 3px">…</span>'; } pag+=`<button class="pag-btn" data-pg="${S.lf.page+1}" ${S.lf.page>=pages?'disabled':''}>›</button>`; }
   const from=(S.lf.page-1)*PAGE_SIZE+1,to=Math.min(S.lf.page*PAGE_SIZE,all.length);
-  const stOpts=['','novo','chamado','respondeu','contato',...(hasEmpFunnel()?EMP_STS():[])].map(s=>`<option value="${s}" ${S.lf.status===s?'selected':''}>${s?stLabel(s):'Todos os status'}</option>`).join('');
-  const tpOpts=[['','Todos os tipos'],['empresario','Empresários'],['comum','Instagram/comum']].map(([v,l])=>`<option value="${v}" ${S.lf.tipo===v?'selected':''}>${l}</option>`).join('');
+  const stFilterPipeline=S.lf.pipeline?pipelineById(S.lf.pipeline):defaultPipeline();
+  const stOptsSM=SM(stFilterPipeline);
+  const stOpts=['',...STS(stFilterPipeline)].map(s=>`<option value="${s}" ${S.lf.status===s?'selected':''}>${s?(stOptsSM[s]&&stOptsSM[s].label||s):'Todos os status'}</option>`).join('');
+  const tpOpts=[['','Todos os funis'],...S.pipelines.map(p=>[p.id,`${p.icon||''} ${p.name}`])].map(([v,l])=>`<option value="${v}" ${S.lf.pipeline===v?'selected':''}>${l}</option>`).join('');
   const niOpts=['',...niches].map(n=>`<option value="${esc(n)}" ${S.lf.niche===n?'selected':''}>${n||'Todos os nichos'}</option>`).join('');
   const soOpts=[['newest','Mais recentes'],['oldest','Mais antigos'],['name','Nome A–Z']].map(([v,l])=>`<option value="${v}" ${S.lf.sort===v?'selected':''}>${l}</option>`).join('');
   const periodLeads=inPeriod(S.leads,S.period); const nIn=periodLeads.filter(l=>!!l.agendorPersonId).length; const nOut=periodLeads.length-nIn;
@@ -500,7 +538,7 @@ function renderLeads(){
   $('ls-note-clear')&&($('ls-note-clear').onclick=()=>{ S.lf.note=''; S.lf.page=1; renderLeads(); });
   $('leads-ag-tabs').onclick=e=>{ const t=e.target.closest('[data-leadag]'); if(!t)return; S.lf.ag=t.dataset.leadag; S.lf.page=1; renderLeads(); };
   $('ls-status').onchange=e=>{ S.lf.status=e.target.value; S.lf.page=1; renderLeads(); };
-  $('ls-tipo').onchange=e=>{ S.lf.tipo=e.target.value; S.lf.page=1; renderLeads(); };
+  $('ls-tipo').onchange=e=>{ S.lf.pipeline=e.target.value; S.lf.status=''; S.lf.page=1; renderLeads(); };
   $('ls-niche').onchange=e=>{ S.lf.niche=e.target.value; S.lf.page=1; renderLeads(); };
   $('ls-sort').onchange=e=>{ S.lf.sort=e.target.value; renderLeads(); };
   $('add-lead').onclick=()=>leadForm();
@@ -512,9 +550,11 @@ function renderLeads(){
 function leadForm(id){
   const l=id?S.leads.find(x=>x.id===id):null;
   const curSt=(l&&l.status)||'novo';
-  const optg=(label,arr)=>`<optgroup label="${label}">`+arr.map(s=>`<option value="${s}" ${curSt===s?'selected':''}>${stLabel(s)}</option>`).join('')+`</optgroup>`;
-  const stOpts=hasEmpFunnel() ? optg('Instagram / Prospecção',STS())+optg('Empresário / Negociação',EMP_STS()) : optg('Prospecção',STS());
-  const tipoField=hasEmpFunnel() ? `<div class="fld full"><label>Tipo</label><select id="f-tipo"><option value="comum" ${(l&&l.tipo||'comum')==='comum'?'selected':''}>Instagram / comum → Negócios</option><option value="empresario" ${l&&l.tipo==='empresario'?'selected':''}>Empresário → Empresários</option></select></div>` : '';
+  const curPl=leadPipeline(l)||defaultPipeline();
+  const plOpts=S.pipelines.map(p=>`<option value="${p.id}" ${curPl&&curPl.id===p.id?'selected':''}>${esc(p.icon||'')} ${esc(p.name)}</option>`).join('');
+  const stOptsFor=p=>STS(p).map(s=>`<option value="${s}" ${curSt===s?'selected':''}>${(SM(p)[s]||{}).label||s}</option>`).join('');
+  const pipelineField=S.pipelines.length>1?`<div class="fld"><label>Funil</label><select id="f-pipeline">${plOpts}</select></div>`:'';
+  const nicheField=S.niches.length?`<div class="fld"><label>Nicho</label><select id="f-niche"><option value="">— selecione —</option>${S.niches.map(n=>`<option value="${esc(n.name)}" ${(l&&l.niche)===n.name?'selected':''}>${esc(n.name)}</option>`).join('')}${(l&&l.niche)&&!S.niches.some(n=>n.name===l.niche)?`<option value="${esc(l.niche)}" selected>${esc(l.niche)} (antigo)</option>`:''}</select></div>`:`<div class="fld"><label>Nicho</label><input id="f-niche" value="${esc(l&&l.niche||'')}"></div>`;
   const extraFields=MOD().extraLeadFields||[];
   const extraHtml=extraFields.map(f=>{
     const val=(l&&l.customFields&&l.customFields[f.key])||'';
@@ -526,16 +566,18 @@ function leadForm(id){
       <div class="fld full"><label>Nome</label><input id="f-name" value="${esc(l&&l.name||'')}" placeholder="Nome do contato"></div>
       <div class="fld"><label>@usuário</label><input id="f-user" value="${esc(l&&l.username||'')}" placeholder="usuario"></div>
       <div class="fld"><label>Telefone</label><input id="f-phone" value="${esc(l&&l.phone||'')}" placeholder="(11) 9..."></div>
-      <div class="fld"><label>Nicho</label><input id="f-niche" value="${esc(l&&l.niche||'')}"></div>
-      <div class="fld"><label>Status</label><select id="f-status">${stOpts}</select></div>
-      ${tipoField}
+      ${nicheField}
+      ${pipelineField}
+      <div class="fld"><label>Status</label><select id="f-status">${stOptsFor(curPl)}</select></div>
       ${extraHtml}
       <div class="fld full"><label>Observações</label><textarea id="f-notes" placeholder="Notas…">${esc(l&&l.notes||'')}</textarea></div>
     </div>${agendorOn()&&!(l&&l.agendorPersonId)?`<label style="display:flex;align-items:center;gap:9px;margin-top:10px;padding:10px 12px;background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.2);border-radius:9px;cursor:pointer"><input type="checkbox" id="f-ag-exists" style="width:16px;height:16px;accent-color:#6EE7B7;cursor:pointer"><span style="font-size:.78rem;color:var(--t2)">☁ Lead já está no Agendor (não enviar novamente)</span></label>`:''}</div>
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="f-save">${id?'Salvar':'Cadastrar'}</button></div></div></div>`);
+  $('f-pipeline')&&($('f-pipeline').onchange=e=>{ const p=pipelineById(e.target.value); $('f-status').innerHTML=stOptsFor(p); });
   $('f-save').onclick=async()=>{
     const customFields=Object.fromEntries(extraFields.map(f=>[f.key, ($('f-x-'+f.key)&&$('f-x-'+f.key).value)||'']));
-    const data={ name:$('f-name').value.trim(), username:$('f-user').value.trim().replace(/^@/,''), phone:$('f-phone').value.trim(), niche:$('f-niche').value.trim(), status:$('f-status').value, tipo:$('f-tipo')?$('f-tipo').value:(l&&l.tipo||'comum'), notes:$('f-notes').value.trim(), customFields };
+    const pipeline=pipelineById($('f-pipeline')?$('f-pipeline').value:(curPl&&curPl.id));
+    const data={ name:$('f-name').value.trim(), username:$('f-user').value.trim().replace(/^@/,''), phone:$('f-phone').value.trim(), niche:$('f-niche').value.trim(), status:$('f-status').value, pipeline_id:pipeline&&pipeline.id, tipo:(pipeline&&pipeline.counts_as_empresario)?'empresario':'comum', notes:$('f-notes').value.trim(), customFields };
     if(!data.name&&!data.username){ toast('Informe nome ou @usuário','warn'); return; }
     const markAsInAgendor = !!($('f-ag-exists')&&$('f-ag-exists').checked);
     $('f-save').disabled=true;
@@ -544,9 +586,10 @@ function leadForm(id){
     if(id){ const{error}=await sb.from('leads').update(leadToRow(data)).eq('id',id); if(error){toast(error.message,'error');return;} toast('Lead atualizado','success'); }
     else { data.source='manual'; const{data:ins,error}=await sb.from('leads').insert(leadToRow(data)).select('id').single(); if(error){toast(error.message,'error');return;} savedId=ins&&ins.id; toast('Lead cadastrado','success'); }
     if(markAsInAgendor && savedId) await sb.from('leads').update({agendor_person_id:'manual'}).eq('id',savedId);
-    closeModal(); await loadLeads(); if(data.status==='contato'||data.tipo==='empresario'){ await loadDeals(); if(savedId) await ensureDealForLead(savedId); } renderShell();
-    if(data.status==='contato' && prevStatus!=='contato') notifyLeadContato(S.leads.find(x=>x.id===savedId)||data);
-    if(data.status==='contato' && agendorOn() && agendorAutoOn() && savedId){ const lead=S.leads.find(x=>x.id===savedId); if(lead && !lead.agendorPersonId) sendLeadToAgendor(savedId,true); }
+    const converted=isLastStage(data.status,pipeline);
+    closeModal(); await loadLeads(); if(converted||data.tipo==='empresario'){ await loadDeals(); if(savedId) await ensureDealForLead(savedId); } renderShell();
+    if(converted && prevStatus!==data.status) notifyLeadContato(S.leads.find(x=>x.id===savedId)||data);
+    if(converted && agendorOn() && agendorAutoOn() && savedId){ const lead=S.leads.find(x=>x.id===savedId); if(lead && !lead.agendorPersonId) sendLeadToAgendor(savedId,true); }
   };
 }
 function delLead(id){ const l=S.leads.find(x=>x.id===id);
@@ -577,9 +620,10 @@ function importLeads(){
       if((extId&&haveExt.has(extId))||(uk&&haveUser.has(uk))) continue;
       haveExt.add(extId); if(uk) haveUser.add(uk);
       const tipo=l.tipo||'comum';
-      // Empresários já são contatos → entram no funil próprio como "A Contatar"
-      const status = tipo==='empresario' ? 'a_contatar' : (l.status||'chamado');
-      rows.push({ name:l.name||'', username:uk||'', phone:l.phone||'', email:l.email||'', niche:l.niche||'', status, tipo, funil:l.funil||null, cidade:l.cidade||null, estado:l.estado||null, cnpj:l.cnpj||null, notes:l.notes||'', source:l.source||'import', ext_id:extId||null, added_at:l.addedAt||new Date().toISOString() });
+      // Empresários já são contatos → entram no funil marcado como "conta como empresário" (se a org tiver um)
+      const pipeline = tipo==='empresario' ? (S.pipelines.find(p=>p.counts_as_empresario)||defaultPipeline()) : defaultPipeline();
+      const status = tipo==='empresario' ? (STS(pipeline)[0]||'a_contatar') : (l.status||STS(pipeline)[1]||STS(pipeline)[0]);
+      rows.push({ name:l.name||'', username:uk||'', phone:l.phone||'', email:l.email||'', niche:l.niche||'', status, tipo, pipeline_id:pipeline&&pipeline.id, funil:l.funil||null, cidade:l.cidade||null, estado:l.estado||null, cnpj:l.cnpj||null, notes:l.notes||'', source:l.source||'import', ext_id:extId||null, added_at:l.addedAt||new Date().toISOString() });
     }
     if(!rows.length){ toast('Nada novo para importar (já estão no sistema)','warn'); return; }
     toast(`Importando ${rows.length} leads…`);
@@ -594,31 +638,29 @@ function importLeads(){
 ===================================================================== */
 function renderCRM(){
   const allP=inPeriod(S.leads,S.period);
-  const nEmp=allP.filter(l=>l.tipo==='empresario').length;
-  const isEmp=hasEmpFunnel() && S.crmTipo==='empresario';
-  const cols=isEmp?EMP_STS():STS();
-  const colSM=isEmp?EMP_SM():SM(), colSC=isEmp?EMP_SC():SC();
-  // Empresários têm funil próprio; o board de prospecção (Todos/Instagram) mostra só os do Instagram.
-  let leads = isEmp ? allP.filter(l=>l.tipo==='empresario') : allP.filter(l=>(l.tipo||'comum')!=='empresario');
+  const active=S.crmPipelineId?pipelineById(S.crmPipelineId):null;
+  const cols=STS(active||defaultPipeline());
+  const colSM=SM(active||defaultPipeline()), colSC=SC(active||defaultPipeline());
+  let leads = active ? allP.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===active.id) : allP;
   const q=(S.crmQ||'').toLowerCase().trim();
   if(q) leads=leads.filter(l=>(l.name||'').toLowerCase().includes(q)||(l.username||'').toLowerCase().includes(q)||(l.phone||'').toLowerCase().includes(q)||(l.niche||'').toLowerCase().includes(q));
-  const defCol = isEmp?'a_contatar':'novo';
+  const defCol = cols[0]||'novo';
   const bucket = l => { const s=l.status||defCol; return cols.includes(s)?s:defCol; };
-  const segs=(hasEmpFunnel()?[['','Todos',allP.length-nEmp],['empresario','🏢 Empresários',nEmp],['comum','📸 Instagram',allP.length-nEmp]]:[['','Todos',allP.length]]).map(([v,l,n])=>`<div class="period-tab${S.crmTipo===v?' active':''}" data-crmtipo="${v}">${l} <span style="opacity:.6">(${n})</span></div>`).join('');
+  const segs=[['','Todos',allP.length],...S.pipelines.map(p=>[p.id,`${p.icon||''} ${p.name}`,allP.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===p.id).length])].map(([v,l,n])=>`<div class="period-tab${S.crmPipelineId===v?' active':''}" data-crmpl="${v}">${l} <span style="opacity:.6">(${n})</span></div>`).join('');
   const board=cols.map(st=>{ const items=leads.filter(l=>bucket(l)===st).sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0));
     const cards=items.length?items.map(l=>`<div class="crm-card${S.sel.mode&&S.sel.ids.has(l.id)?' sel-on':''}" draggable="${!S.sel.mode}" data-id="${esc(l.id)}"><div class="crm-card-top">${selChk(l.id)}<div class="avatar">${esc(ini(l.name||l.username))}</div><div style="min-width:0;flex:1"><div class="crm-card-nm">${esc(l.name||l.username||'—')}</div><div class="crm-card-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}</div></div></div><div class="crm-card-meta">${l.niche?`<span class="tag">${esc(l.niche)}</span>`:''}${l.phone?`<span class="info-chip">${esc(l.phone)}</span>`:''}${l.agendorPersonId&&agendorOn()?`<span class="info-chip" style="color:#6EE7B7">☁ Agendor</span>`:''}</div></div>`).join(''):'<div class="crm-card-empty">Arraste aqui</div>';
-    return `<div class="crm-col" data-status="${st}"><div class="crm-col-hd"><span class="crm-col-dot" style="background:${colSC[st]}"></span><span class="crm-col-nm">${colSM[st].label}</span><span class="crm-col-cnt">${items.length}</span></div><div class="crm-col-bd">${cards}</div></div>`; }).join('');
-  const hint=isEmp?'Empresários já são contatos — mova pelas etapas de negociação. As ligações vão para o funil "Empresários" no Agendor.':'Arraste os cartões entre as colunas. Ao chegar em "Enviou Contato", vira negociação e (se configurado) vai ao funil "Negócios" no Agendor.';
-  $('content').innerHTML=`<div class="tbl-controls"><div class="sec-title" style="margin:0;flex:1">Pipeline</div><div class="period-tabs" id="crm-tabs">${segs}</div><button class="btn btn-primary" id="crm-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Cadastrar Lead</button></div><div class="tbl-controls" style="margin-bottom:10px"><div class="search-wrap" style="flex:0 1 280px;min-width:160px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-inp" id="crm-q" placeholder="Buscar no funil…" value="${esc(S.crmQ)}"></div><p class="sec-sub" style="margin:0;flex:1">${S.sel.mode?'Toque nos cartões para selecionar.':hint}</p>${selBar()}</div><div class="crm-board" id="crm-board">${leads.length?board:`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-title">${q?'Nenhum resultado':'Nenhum lead'}</div><div class="empty-sub">${q?`Nada encontrado para "${esc(S.crmQ)}".`:(isEmp?'Importe ou cadastre empresários para começar.':'Cadastre um lead para começar.')}</div></div></div>`}</div>`;
+    return `<div class="crm-col" data-status="${st}"><div class="crm-col-hd"><span class="crm-col-dot" style="background:${colSC[st]}"></span><span class="crm-col-nm">${(colSM[st]||{}).label||st}</span><span class="crm-col-cnt">${items.length}</span></div><div class="crm-col-bd">${cards}</div></div>`; }).join('');
+  const hint='Arraste os cartões entre as colunas. Ao chegar na última etapa, vira negociação e (se configurado) vai ao Agendor.';
+  $('content').innerHTML=`<div class="tbl-controls"><div class="sec-title" style="margin:0;flex:1">Pipeline</div><div class="period-tabs" id="crm-tabs">${segs}</div><button class="btn btn-primary" id="crm-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Cadastrar Lead</button></div><div class="tbl-controls" style="margin-bottom:10px"><div class="search-wrap" style="flex:0 1 280px;min-width:160px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-inp" id="crm-q" placeholder="Buscar no funil…" value="${esc(S.crmQ)}"></div><p class="sec-sub" style="margin:0;flex:1">${S.sel.mode?'Toque nos cartões para selecionar.':hint}</p>${selBar()}</div><div class="crm-board" id="crm-board">${leads.length?board:`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-title">${q?'Nenhum resultado':'Nenhum lead'}</div><div class="empty-sub">${q?`Nada encontrado para "${esc(S.crmQ)}".`:'Cadastre um lead para começar.'}</div></div></div>`}</div>`;
   $('crm-add').onclick=()=>leadForm();
   $('crm-q').oninput=e=>{ S.crmQ=e.target.value; renderCRM(); refocus('crm-q'); };
-  $('crm-tabs').onclick=e=>{ const t=e.target.closest('[data-crmtipo]'); if(!t)return; S.crmTipo=t.dataset.crmtipo; selReset(); renderCRM(); };
+  $('crm-tabs').onclick=e=>{ const t=e.target.closest('[data-crmpl]'); if(!t)return; S.crmPipelineId=t.dataset.crmpl; selReset(); renderCRM(); };
   const board2=$('crm-board'); let dragId=null;
   board2.addEventListener('dragstart',e=>{ const c=e.target.closest('.crm-card'); if(!c)return; dragId=c.dataset.id; c.classList.add('dragging'); });
   board2.addEventListener('dragend',e=>{ const c=e.target.closest('.crm-card'); if(c)c.classList.remove('dragging'); document.querySelectorAll('.crm-col.dragover').forEach(x=>x.classList.remove('dragover')); });
   board2.addEventListener('dragover',e=>{ const col=e.target.closest('.crm-col'); if(col){ e.preventDefault(); col.classList.add('dragover'); } });
   board2.addEventListener('dragleave',e=>{ const col=e.target.closest('.crm-col'); if(col&&!col.contains(e.relatedTarget))col.classList.remove('dragover'); });
-  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { toast(`Movido para "${stLabel(ns)}"`,'success'); if(ns==='contato'||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(ns==='contato'){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } if(agendorOn()&&agendorAutoOn()&&!l.agendorPersonId) sendLeadToAgendor(id,true); } } } renderCRM(); });
+  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { const lp=leadPipeline(l); toast(`Movido para "${(SM(lp)[ns]||{}).label||ns}"`,'success'); if(isLastStage(ns,lp)||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(isLastStage(ns,lp)){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } if(agendorOn()&&agendorAutoOn()&&!l.agendorPersonId) sendLeadToAgendor(id,true); } } } renderCRM(); });
   board2.addEventListener('click',e=>{ const c=e.target.closest('.crm-card[data-id]'); if(!c)return; if(S.sel.mode){ selToggle(c.dataset.id); renderCRM(); return; } leadForm(c.dataset.id); });
   bindSelBar(leads.map(l=>l.id), renderCRM, bulkDeleteLeads);
 }
@@ -637,16 +679,17 @@ async function ensureDealForLead(leadId){
 /* =====================================================================
    CALLS
 ===================================================================== */
-function callMetrics(calls){ const c={interessado:0,retornar:0,sem_interesse:0,nao_atendeu:0,fechado:0}; for(const k of calls){ const o=k.outcome||'nao_atendeu'; c[o]!=null?c[o]++:c.nao_atendeu++; } return c; }
+function callMetrics(calls){ const keys=CALL_OUT(); const c=Object.fromEntries(keys.map(k=>[k,0])); const fb=keys[0]; for(const k of calls){ const o=k.outcome||fb; if(c[o]!=null) c[o]++; else if(fb) c[fb]++; } return c; }
 function filteredCalls(){ let calls=inPeriod(S.calls,S.period,'at'); const q=S.cf.q.toLowerCase().trim(); if(q)calls=calls.filter(k=>(k.name||'').toLowerCase().includes(q)||(k.phone||'').toLowerCase().includes(q)||(k.notes||'').toLowerCase().includes(q)); if(S.cf.outcome)calls=calls.filter(k=>(k.outcome||'nao_atendeu')===S.cf.outcome); return S.cf.sort==='oldest'?[...calls].sort((a,b)=>new Date(a.at||0)-new Date(b.at||0)):[...calls].sort((a,b)=>new Date(b.at||0)-new Date(a.at||0)); }
 function renderCalls(){
   const all=filteredCalls(),periodCalls=inPeriod(S.calls,S.period,'at'),cm=callMetrics(periodCalls),total=periodCalls.length,good=cm.interessado+cm.fechado,rate=total?Math.round(good/total*100):0;
   const pages=Math.max(1,Math.ceil(all.length/PAGE_SIZE)); S.cf.page=Math.min(S.cf.page,pages); const slice=all.slice((S.cf.page-1)*PAGE_SIZE,S.cf.page*PAGE_SIZE);
   const kc=[ {lbl:'Ligações',val:total,sub:'no período',cls:'kk-c'},{lbl:'Interessados',val:cm.interessado,sub:'querem a oferta',cls:'kk-o'},{lbl:'A retornar',val:cm.retornar,sub:'callback',cls:'kk-r'},{lbl:'Aproveitamento',val:rate+'%',sub:'interesse+fechado',cls:'kk-n'} ].map(k=>`<div class="kpi-card ${k.cls}"><div class="kpi-lbl">${k.lbl}</div><div class="kpi-val">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
-  const rows=slice.length?slice.map(k=>{ const o=k.outcome||'nao_atendeu'; return `<tr data-id="${esc(k.id)}"${S.sel.mode&&S.sel.ids.has(k.id)?' style="background:rgba(99,102,241,.08)"':''}>${selCell(k.id)}<td><div class="lead-cell"><div class="avatar">${esc(ini(k.name||k.phone))}</div><div><div class="lead-nm">${esc(k.name||'—')}</div><div class="lead-un">${esc(k.phone||'—')}</div></div></div></td><td><span class="call-out co-${o}">${COM[o]||o}</span></td><td style="color:var(--t2);font-size:.73rem">${k.duration?esc(k.duration)+' min':'—'}</td><td style="color:var(--t2);font-size:.73rem">${fmtDate(k.at)}</td><td style="font-size:.72rem;color:var(--t3);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k.notes||'—')}</td><td><div class="tbl-acts"><button class="act-btn" data-edit="${esc(k.id)}">Editar</button><button class="act-btn act-del" data-del="${esc(k.id)}">Excluir</button></div></td></tr>`; }).join('')
+  const comMap=COM();
+  const rows=slice.length?slice.map(k=>{ const o=k.outcome||'nao_atendeu'; return `<tr data-id="${esc(k.id)}"${S.sel.mode&&S.sel.ids.has(k.id)?' style="background:rgba(99,102,241,.08)"':''}>${selCell(k.id)}<td><div class="lead-cell"><div class="avatar">${esc(ini(k.name||k.phone))}</div><div><div class="lead-nm">${esc(k.name||'—')}</div><div class="lead-un">${esc(k.phone||'—')}</div></div></div></td><td><span class="call-out co-${o}">${comMap[o]||o}</span></td><td style="color:var(--t2);font-size:.73rem">${k.duration?esc(k.duration)+' min':'—'}</td><td style="color:var(--t2);font-size:.73rem">${fmtDate(k.at)}</td><td style="font-size:.72rem;color:var(--t3);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(k.notes||'—')}</td><td><div class="tbl-acts"><button class="act-btn" data-edit="${esc(k.id)}">Editar</button><button class="act-btn act-del" data-del="${esc(k.id)}">Excluir</button></div></td></tr>`; }).join('')
     :`<tr><td colspan="${S.sel.mode?7:6}"><div class="empty-state"><div class="empty-title">Nenhuma ligação registrada</div><div class="empty-sub">Clique em "Registrar Ligação".</div></div></td></tr>`;
   let pag=''; if(pages>1){ pag+=`<button class="pag-btn" data-pg="${S.cf.page-1}" ${S.cf.page<=1?'disabled':''}>‹</button>`; for(let i=1;i<=pages;i++)pag+=`<button class="pag-btn${i===S.cf.page?' active':''}" data-pg="${i}">${i}</button>`; pag+=`<button class="pag-btn" data-pg="${S.cf.page+1}" ${S.cf.page>=pages?'disabled':''}>›</button>`; }
-  const outOpts=['',...CALL_OUT].map(o=>`<option value="${o}" ${S.cf.outcome===o?'selected':''}>${o?COM[o]:'Todos os resultados'}</option>`).join('');
+  const outOpts=['',...CALL_OUT()].map(o=>`<option value="${o}" ${S.cf.outcome===o?'selected':''}>${o?comMap[o]:'Todos os resultados'}</option>`).join('');
   const soOpts=[['newest','Mais recentes'],['oldest','Mais antigas']].map(([v,l])=>`<option value="${v}" ${S.cf.sort===v?'selected':''}>${l}</option>`).join('');
   $('content').innerHTML=`<div class="kpi-grid">${kc}</div><div class="tbl-controls"><div class="search-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-inp" id="cs-q" placeholder="Buscar por nome, telefone, nota…" value="${esc(S.cf.q)}"></div><select class="flt-sel" id="cs-out">${outOpts}</select><select class="flt-sel" id="cs-sort">${soOpts}</select><button class="btn btn-primary" id="add-call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Registrar Ligação</button>${selBar()}</div>
     <div class="card"><div class="res-bar"><span><strong>${all.length}</strong> ligação(ões)</span><span style="color:var(--t3)">${S.calls.length} no total</span></div><table class="data-tbl" id="calls-tbl"><thead><tr>${S.sel.mode?'<th class="sel-td"></th>':''}<th>Contato</th><th>Resultado</th><th>Duração</th><th>Data</th><th>Notas</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pages>1?`<div class="pagination"><span>${all.length} ligações</span><div class="pag-btns" id="cpag">${pag}</div></div>`:''}</div>`;
@@ -664,7 +707,8 @@ function callForm(id){
   const sorted=[...S.leads].sort((a,b)=>(a.name||a.username||'').localeCompare(b.name||b.username||''));
   const listOpts=sorted.map(l=>`<option value="${esc(leadLabel(l))}"></option>`).join('');
   const preset=call&&call.leadId?S.leads.find(x=>x.id===call.leadId):null;
-  const outOpts=CALL_OUT.map(o=>`<option value="${o}" ${(call&&call.outcome||'interessado')===o?'selected':''}>${COM[o]}</option>`).join('');
+  const comMap2=COM();
+  const outOpts=CALL_OUT().map(o=>`<option value="${o}" ${(call&&call.outcome||'interessado')===o?'selected':''}>${comMap2[o]}</option>`).join('');
   const dt=call&&call.at?new Date(call.at):new Date(); const dtLocal=new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
   openModal(`<div class="modal-ov"><div class="modal-box"><div class="modal-hd"><div><div class="modal-title">${id?'Editar Ligação':'Registrar Ligação'}</div><div class="modal-sub">Resultado da chamada</div></div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
     <div class="modal-bd"><div class="form-grid">
@@ -1080,8 +1124,8 @@ function goalsForm(){
 }
 
 /* =====================================================================
-   AGENDOR — envio via proxy (Cloudflare Worker). Roteia por tipo do lead:
-   empresario → funil "Empresários"; comum (Instagram) → funil "Negócios".
+   AGENDOR — envio via proxy (Cloudflare Worker, URL global do sistema em
+   config.js). Roteia pelo funil (org_pipelines) ao qual o lead pertence.
 ===================================================================== */
 function agendorOn(){ return !!(S.org && (S.org.agendor_token||'').trim()); }
 function agendorAutoOn(){ return !(S.org && S.org.settings && S.org.settings.agendorAuto===false); }
@@ -1089,14 +1133,14 @@ function agendorAutoOn(){ return !(S.org && S.org.settings && S.org.settings.age
 async function agendorRequest(path, method='GET', body=null){
   const token=(S.org&&S.org.agendor_token||'').trim();
   if(!token) throw new Error('Token do Agendor não configurado');
-  const proxy=(S.org&&S.org.agendor_proxy||'').trim().replace(/\/+$/,'');
+  const proxy=(CFG.AGENDOR_PROXY_URL||'').trim().replace(/\/+$/,'');
   const base=proxy||AGENDOR_BASE; // o Worker já aponta para /v3
   const res=await fetch(base+path,{ method, headers:{ 'Authorization':'Token '+token, 'Content-Type':'application/json' }, body: body?JSON.stringify(body):undefined });
   let json=null; try{ json=await res.json(); }catch(e){}
   if(!res.ok){ const msg=json&&json.errors ? (Array.isArray(json.errors)?json.errors.join('; '):JSON.stringify(json.errors)) : ('HTTP '+res.status); throw new Error(msg); }
   return json;
 }
-function agendorCorsHint(m){ if(/Failed to fetch|NetworkError|CORS/i.test(m)) toast('Bloqueio de CORS — publique o Worker e cole a URL do proxy nas Configurações.','warn'); }
+function agendorCorsHint(m){ if(/Failed to fetch|NetworkError|CORS/i.test(m)) toast('Bloqueio de CORS — o Worker do proxy precisa estar publicado (config.js).','warn'); }
 
 // Nome bonito para o Agendor: "Nome Real (@usuario)". Evita repetir quando
 // o nome ainda está igual ao @ (dados antigos da extensão).
@@ -1109,10 +1153,11 @@ function agendorDisplayName(lead){
   return 'Lead IGProspect';
 }
 
-// Decide o funil/etapa conforme o tipo do lead (mapeamento salvo em org.agendor_map)
+// Decide o funil/etapa do Agendor conforme o FUNIL (pipeline) do lead —
+// cada pipeline tem seu próprio mapeamento (org_pipelines.agendor_map).
 function agendorStageFor(lead){
-  const tipo=(lead&&lead.tipo==='empresario')?'empresario':'comum';
-  return (S.org&&S.org.agendor_map&&S.org.agendor_map[tipo])||null;
+  const p=leadPipeline(lead);
+  return (p&&p.agendor_map)||null;
 }
 
 async function loadAgendorFunnels(){
@@ -1142,8 +1187,8 @@ async function sendLeadToAgendor(id, silent=false){
   const lead=S.leads.find(l=>l.id===id); if(!lead) return;
   if(!agendorOn()){ if(!silent){ toast('Configure o token do Agendor nas Configurações','warn'); S.route='settings'; renderShell(); } return; }
   const map=agendorStageFor(lead);
-  const tipoLbl=lead.tipo==='empresario'?'Empresários':'Negócios';
-  if(!map||!map.stageId){ if(!silent){ toast(`Defina o funil de "${tipoLbl}" nas Configurações`,'warn'); S.route='settings'; renderShell(); } return; }
+  const tipoLbl=(leadPipeline(lead)&&leadPipeline(lead).name)||'Negócios';
+  if(!map||!map.stageId){ if(!silent){ toast(`Defina o destino no Agendor do funil "${tipoLbl}" nas Configurações`,'warn'); S.route='settings'; renderShell(); } return; }
   lead.agendorStatus='pending'; if(S.route==='leads') renderShell();
   try{
     const contact={};
@@ -1205,7 +1250,7 @@ async function sendCallToAgendor(id, silent=false){
     const linked=call.leadId?S.leads.find(l=>l.id===call.leadId):null;
     const map=agendorStageFor(linked||{});
     if(personId&&map&&map.stageId){ try{ await agendorRequest(`/people/${personId}/deals`,'POST',{ title:(call.name||'Lead')+' — '+map.funnelName, dealStage:map.stageId, funnel:map.funnelId, description:`Ligação interessada (IGProspect) · funil ${map.funnelName}.` }); }catch(e){} }
-    if(personId){ const when=call.at||new Date().toISOString(); const txt=`Ligação (${COM[call.outcome]||call.outcome})`+(call.duration?` · ${call.duration} min`:'')+(call.notes?` — ${call.notes}`:''); try{ await agendorRequest(`/people/${personId}/tasks`,'POST',{ text:txt, type:'Ligação', dueDate:when, done:true }); }catch(e){} }
+    if(personId){ const when=call.at||new Date().toISOString(); const txt=`Ligação (${COM()[call.outcome]||call.outcome})`+(call.duration?` · ${call.duration} min`:'')+(call.notes?` — ${call.notes}`:''); try{ await agendorRequest(`/people/${personId}/tasks`,'POST',{ text:txt, type:'Ligação', dueDate:when, done:true }); }catch(e){} }
     toast('Ligação enviada ao Agendor ✓','success');
   }catch(err){ toast('Falha ao enviar ligação ao Agendor: '+err.message,'error'); agendorCorsHint(err.message); }
 }
@@ -1354,11 +1399,39 @@ async function renderOrgSwitcher(){
 /* =====================================================================
    SETTINGS
 ===================================================================== */
+// Editor genérico de lista de etapas (funil de lead, negociação ou desfechos de
+// ligação) — reordenar, renomear, recolorir, adicionar e remover. Usado só pelo
+// dono (a UI que chama isto já checa owner antes de exibir o botão "Editar").
+function stageEditorModal(title, stages, save){
+  let list=(stages&&stages.length?stages:[]).map(s=>({...s}));
+  const render=()=>{
+    const rows=list.length?list.map((s,i)=>`<div class="stg-row" data-i="${i}" style="gap:8px;align-items:center">
+      <input type="color" class="se-color" data-i="${i}" value="${s.color||'#6366F1'}" style="width:32px;height:32px;border:none;background:none;cursor:pointer;padding:0">
+      <input class="stg-input se-label" data-i="${i}" value="${esc(s.label)}" style="flex:1">
+      <button class="act-btn" data-up="${i}" ${i===0?'disabled':''} title="Subir">↑</button>
+      <button class="act-btn" data-down="${i}" ${i===list.length-1?'disabled':''} title="Descer">↓</button>
+      <button class="act-btn act-del" data-rm="${i}" title="Remover">✕</button>
+    </div>`).join(''):'<div class="empty-sub">Nenhuma etapa ainda.</div>';
+    openModal(`<div class="modal-ov"><div class="modal-box"><div class="modal-hd"><div class="modal-title">${esc(title)}</div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
+      <div class="modal-bd"><div style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+      <button class="btn btn-outline btn-sm" id="se-add" style="margin-top:12px">+ Adicionar etapa</button>
+      </div>
+      <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="se-save">Salvar</button></div>
+      </div></div>`);
+    document.querySelectorAll('.se-label').forEach(inp=>inp.oninput=e=>{ list[+e.target.dataset.i].label=e.target.value; });
+    document.querySelectorAll('.se-color').forEach(inp=>inp.oninput=e=>{ list[+e.target.dataset.i].color=e.target.value; });
+    document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.up; [list[i-1],list[i]]=[list[i],list[i-1]]; render(); });
+    document.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.down; [list[i+1],list[i]]=[list[i],list[i+1]]; render(); });
+    document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ list.splice(+b.dataset.rm,1); render(); });
+    $('se-add').onclick=()=>{ const label=(prompt('Nome da nova etapa:')||'').trim(); if(!label) return; list.push({key:slugify(label)+'_'+Math.random().toString(36).slice(2,6),label,short:label,color:'#6366F1'}); render(); };
+    $('se-save').onclick=async()=>{ $('se-save').disabled=true; list.forEach((s,i)=>{ s.order=i; s.short=s.short||s.label; }); const ok=await save(list); if(ok!==false) closeModal(); else $('se-save').disabled=false; };
+  };
+  render();
+}
+
 function renderSettings(){
   const owner=S.profile&&S.profile.org_role==='owner';
   const curTheme=currentTheme();
-  const agMap=(S.org&&S.org.agendor_map)||{};
-  const funnelOpts=cur=>{ const cv=cur?`${cur.funnelId}:${cur.stageId}`:''; return `<option value="">— selecione —</option>`+S._funnelStages.map(f=>{ const v=`${f.funnelId}:${f.stageId}`; return `<option value="${v}" ${v===cv?'selected':''}>${esc(f.funnelName)} · ${esc(f.stageName)}</option>`; }).join(''); };
   $('content').innerHTML=`<div class="stg">
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(99,102,241,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><div><div class="st-title">Seu espaço</div><div class="st-sub">${esc(S.org&&S.org.name||'—')} · você é ${owner?'dono(a)':'membro'}</div></div></div>
       <div class="stg-bd"><div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Código de convite</div><div class="stg-ri-s">Passe para um colega entrar no mesmo espaço</div></div><span class="code-pill">${esc(S.org&&S.org.join_code||'—')}</span></div>
@@ -1377,21 +1450,34 @@ function renderSettings(){
     })()}
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(16,185,129,.12)"><svg viewBox="0 0 24 24" fill="none" stroke="#6EE7B7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div><div><div class="st-title">Integração Agendor</div><div class="st-sub">Envia leads e ligações ao CRM · compartilhada no espaço</div></div></div>
       <div class="stg-bd">
+      ${!owner?`<div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Status</div><div class="stg-ri-s">${agendorOn()?'☁ Conectado ao Agendor':'Não configurado'}</div></div></div><div class="stg-ri-s">Só o dono da equipe pode editar a integração com o Agendor.</div>`:`
         <div class="stg-field"><label class="stg-label">Token da API</label><input class="stg-input" type="password" id="st-token" value="${esc(S.org&&S.org.agendor_token||'')}" placeholder="Cole o token"></div>
-        <div class="stg-field"><label class="stg-label">URL do proxy (Cloudflare Worker)</label><input class="stg-input" id="st-proxy" value="${esc(S.org&&S.org.agendor_proxy||'')}" placeholder="https://seu-worker.workers.dev"></div>
-        <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Envio automático</div><div class="stg-ri-s">Leads "Enviou Contato" e ligações "Interessado"/"Fechou" vão sozinhos ao Agendor</div></div><label style="cursor:pointer"><input type="checkbox" id="st-auto" ${agendorAutoOn()?'checked':''} style="width:20px;height:20px;cursor:pointer;accent-color:#10B981"></label></div>
+        <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Envio automático</div><div class="stg-ri-s">Ao chegar na última etapa de um funil, envia sozinho ao Agendor</div></div><label style="cursor:pointer"><input type="checkbox" id="st-auto" ${agendorAutoOn()?'checked':''} style="width:20px;height:20px;cursor:pointer;accent-color:#10B981"></label></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="st-save">Salvar integração</button><button class="btn btn-outline" id="ag-test">Testar conexão</button></div>
         <div style="height:1px;background:rgba(255,255,255,.06);margin:4px 0"></div>
-        <div class="stg-ri-t">Roteamento de funil</div>
-        <div class="stg-ri-s" style="margin-bottom:8px">Empresários → funil "Empresários"; leads do Instagram → funil "Negócios". A separação é automática pelo tipo do lead.</div>
+        <div class="stg-ri-t">Roteamento por funil</div>
+        <div class="stg-ri-s" style="margin-bottom:8px">Cada funil de lead (aba Personalização) pode apontar para um funil/etapa diferente do Agendor.</div>
         <button class="btn btn-outline btn-sm" id="ag-load-funnels" style="align-self:flex-start">↻ Carregar funis do Agendor</button>
-        ${S._funnelStages.length?`
-          <div class="stg-field"><label class="stg-label">🏢 Empresário →</label><select class="stg-input" id="ag-map-emp">${funnelOpts(agMap.empresario)}</select></div>
-          <div class="stg-field"><label class="stg-label">📸 Instagram / comum →</label><select class="stg-input" id="ag-map-com">${funnelOpts(agMap.comum)}</select></div>
-          <button class="btn btn-primary btn-sm" id="ag-save-map" style="align-self:flex-start">Salvar mapeamento</button>
-        `:`<div class="stg-ri-s">${(agMap.empresario||agMap.comum)?`Empresário → ${agMap.empresario?esc(agMap.empresario.funnelName+' · '+agMap.empresario.stageName):'não definido'}<br>Instagram → ${agMap.comum?esc(agMap.comum.funnelName+' · '+agMap.comum.stageName):'não definido'}`:'Clique em "Carregar funis" para configurar os funis.'}</div>`}
-        <div style="font-size:.72rem;color:var(--t2);margin-top:6px;padding:9px 11px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px">⚠️ O navegador bloqueia chamadas diretas à API do Agendor (CORS). Publique o Cloudflare Worker (arquivo <code>agendor-worker.js</code>) e cole a URL dele acima. Sem o proxy, o envio falha.</div>
+        ${S.pipelines.map(p=>{ const cv=p.agendor_map?`${p.agendor_map.funnelId}:${p.agendor_map.stageId}`:''; const opts=`<option value="">— selecione —</option>`+S._funnelStages.map(f=>{ const v=`${f.funnelId}:${f.stageId}`; return `<option value="${v}" ${v===cv?'selected':''}>${esc(f.funnelName)} · ${esc(f.stageName)}</option>`; }).join(''); return S._funnelStages.length?`<div class="stg-field"><label class="stg-label">${esc(p.icon||'')} ${esc(p.name)} →</label><select class="stg-input ag-map-pl" data-pl="${p.id}">${opts}</select></div>`:`<div class="stg-ri-s">${esc(p.icon||'')} ${esc(p.name)} → ${p.agendor_map?esc(p.agendor_map.funnelName+' · '+p.agendor_map.stageName):'não definido'}</div>`; }).join('')}
+        ${S._funnelStages.length?`<button class="btn btn-primary btn-sm" id="ag-save-map" style="align-self:flex-start">Salvar mapeamento</button>`:''}
+        <div style="font-size:.72rem;color:var(--t2);margin-top:6px;padding:9px 11px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px">⚠️ O navegador bloqueia chamadas diretas à API do Agendor (CORS) — por isso o envio passa por um proxy (Cloudflare Worker) já configurado no sistema.</div>
+      `}
       </div></div>
+    ${owner?`<div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(99,102,241,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div><div><div class="st-title">Personalização</div><div class="st-sub">Funis, nichos, negociações e ligações do seu jeito · só o dono edita</div></div></div>
+      <div class="stg-bd">
+        <div class="stg-ri-t">Funis de Lead</div>
+        <div class="stg-ri-s" style="margin-bottom:8px">Cada funil tem suas próprias etapas. Leads pertencem a um funil (ex.: "Instagram", "Empresários", "Indicação").</div>
+        ${S.pipelines.map(p=>`<div class="stg-row" data-pl="${p.id}"><div class="stg-ri"><div class="stg-ri-t">${esc(p.icon||'')} ${esc(p.name)}${p.is_default?' <span class="tag">padrão</span>':''}</div><div class="stg-ri-s">${STS(p).length} etapa(s)</div></div><div class="tbl-acts">${!p.is_default?`<button class="act-btn" data-pl-default="${p.id}">★ Tornar padrão</button>`:''}<button class="act-btn" data-pl-edit="${p.id}">Editar etapas</button><button class="act-btn" data-pl-rename="${p.id}">Renomear</button><button class="act-btn act-del" data-pl-del="${p.id}">Excluir</button></div></div>`).join('')||'<div class="empty-sub">Nenhum funil ainda.</div>'}
+        <button class="btn btn-outline btn-sm" id="pl-add" style="align-self:flex-start;margin-top:6px">+ Novo funil</button>
+        <div style="height:1px;background:rgba(255,255,255,.06);margin:10px 0"></div>
+        <div class="stg-ri-t">Nichos</div>
+        <div class="stg-ri-s" style="margin-bottom:8px">Lista fechada — a equipe escolhe entre estas opções ao cadastrar um lead.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${S.niches.map(n=>`<span class="tag" data-niche="${n.id}" style="cursor:pointer" title="Remover">${esc(n.name)} ✕</span>`).join('')||'<span class="empty-sub">Nenhum nicho cadastrado.</span>'}</div>
+        <div style="display:flex;gap:8px"><input class="stg-input" id="niche-add-inp" placeholder="Novo nicho… (Enter para adicionar)" style="flex:1;max-width:280px"><button class="btn btn-outline btn-sm" id="niche-add-btn">Adicionar</button></div>
+        <div style="height:1px;background:rgba(255,255,255,.06);margin:10px 0"></div>
+        <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Etapas de Negociação</div><div class="stg-ri-s">${DEAL_STS().length} etapa(s) · usadas na aba Negociações</div></div><button class="btn btn-outline btn-sm" id="deal-stages-edit">Editar</button></div>
+        <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Desfechos de Ligação</div><div class="stg-ri-s">${CALL_OUT().length} opção(ões) · usadas na aba Ligações</div></div><button class="btn btn-outline btn-sm" id="call-out-edit">Editar</button></div>
+      </div></div>`:''}
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(236,72,153,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#F472B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div><div><div class="st-title">Extensão do Instagram</div><div class="st-sub">Detecta perfis e adiciona leads direto do Instagram para o seu espaço</div></div></div>
       <div class="stg-bd">
         <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-primary" href="igprospect-extension.zip" download>⬇ Baixar extensão</a></div>
@@ -1407,19 +1493,81 @@ function renderSettings(){
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(139,92,246,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#C084FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="st-title">Conta</div><div class="st-sub">${esc(S.profile&&S.profile.email||'')}</div></div></div>
       <div class="stg-bd"><div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">${esc(S.profile&&S.profile.name||'')}</div><div class="stg-ri-s">${S.leads.length} leads · ${S.calls.length} ligações neste espaço</div></div><button class="btn btn-outline btn-sm" id="st-logout">Sair</button></div></div></div>
   </div>`;
-  $('st-save').onclick=async()=>{ const settings={ ...(S.org.settings||{}), agendorAuto: $('st-auto')?$('st-auto').checked:true }; const patch={ agendor_token:$('st-token').value.trim(), agendor_proxy:$('st-proxy').value.trim(), settings }; const{error}=await sb.from('orgs').update(patch).eq('id',S.org.id); if(error){toast(error.message,'error');return;} S.org={...S.org,...patch}; toast('Integração salva','success'); };
+  $('st-save')&&($('st-save').onclick=async()=>{ const settings={ ...(S.org.settings||{}), agendorAuto: $('st-auto')?$('st-auto').checked:true }; const patch={ agendor_token:$('st-token').value.trim(), settings }; const{error}=await sb.from('orgs').update(patch).eq('id',S.org.id); if(error){toast(error.message,'error');return;} S.org={...S.org,...patch}; toast('Integração salva','success'); });
   $('ag-test')&&($('ag-test').onclick=testAgendor);
   $('ag-load-funnels')&&($('ag-load-funnels').onclick=loadAgendorFunnels);
   $('ag-save-map')&&($('ag-save-map').onclick=async()=>{
     const parse=v=>{ if(!v) return null; const [fid,sid]=v.split(':'); const f=S._funnelStages.find(x=>String(x.funnelId)===fid&&String(x.stageId)===sid); return f?{funnelId:f.funnelId,stageId:f.stageId,funnelName:f.funnelName,stageName:f.stageName}:null; };
-    const agendor_map={ empresario:parse($('ag-map-emp').value), comum:parse($('ag-map-com').value) };
-    const{error}=await sb.from('orgs').update({agendor_map}).eq('id',S.org.id); if(error){toast(error.message,'error');return;} S.org={...S.org,agendor_map}; toast('Mapeamento salvo ✓','success'); renderSettings();
+    const sels=[...document.querySelectorAll('.ag-map-pl')];
+    for(const sel of sels){ const agendor_map=parse(sel.value); const{error}=await sb.from('org_pipelines').update({agendor_map}).eq('id',sel.dataset.pl); if(error){toast(error.message,'error');return;} }
+    await loadPipelines(); toast('Mapeamento salvo ✓','success'); renderSettings();
   });
   $('st-module')&&($('st-module').onchange=async e=>{
     const module_id=e.target.value;
     const{error}=await sb.from('orgs').update({module_id}).eq('id',S.org.id);
     if(error){toast(error.message,'error');return;}
     S.org={...S.org,module_id}; toast('Módulo atualizado','success'); renderShell();
+  });
+  // ---- Personalização (owner-only) ----
+  $('pl-add')&&($('pl-add').onclick=async()=>{
+    const name=(prompt('Nome do novo funil (ex.: "Indicação"):')||'').trim(); if(!name) return;
+    const order_idx=S.pipelines.length;
+    const stages=[{key:'novo',label:'Novo',short:'Novo',color:'#64748B',order:0},{key:'concluido',label:'Concluído',short:'Concluído',color:'#10B981',order:1}];
+    const{error}=await sb.from('org_pipelines').insert({org_id:S.org.id,name,icon:'📋',order_idx,stages});
+    if(error){toast(error.message,'error');return;} await loadPipelines(); toast('Funil criado','success'); renderSettings();
+  });
+  document.querySelectorAll('[data-pl-edit]').forEach(b=>b.onclick=()=>{
+    const p=S.pipelines.find(x=>x.id===b.dataset.plEdit); if(!p)return;
+    stageEditorModal(`Etapas do funil "${p.name}"`, STS(p).length?stagesOf(p):[], async list=>{
+      const{error}=await sb.from('org_pipelines').update({stages:list}).eq('id',p.id);
+      if(error){toast(error.message,'error');return false;} await loadPipelines(); toast('Etapas salvas','success'); renderShell(); return true;
+    });
+  });
+  document.querySelectorAll('[data-pl-rename]').forEach(b=>b.onclick=async()=>{
+    const p=S.pipelines.find(x=>x.id===b.dataset.plRename); if(!p)return;
+    const name=(prompt('Novo nome do funil:',p.name)||'').trim(); if(!name||name===p.name) return;
+    const{error}=await sb.from('org_pipelines').update({name}).eq('id',p.id);
+    if(error){toast(error.message,'error');return;} await loadPipelines(); renderSettings();
+  });
+  document.querySelectorAll('[data-pl-default]').forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.plDefault;
+    await sb.from('org_pipelines').update({is_default:false}).eq('org_id',S.org.id);
+    const{error}=await sb.from('org_pipelines').update({is_default:true}).eq('id',id);
+    if(error){toast(error.message,'error');return;} await loadPipelines(); toast('Funil padrão atualizado','success'); renderSettings();
+  });
+  document.querySelectorAll('[data-pl-del]').forEach(b=>b.onclick=async()=>{
+    const p=S.pipelines.find(x=>x.id===b.dataset.plDel); if(!p)return;
+    if(S.pipelines.length<=1){ toast('Mantenha ao menos um funil','warn'); return; }
+    if(S.leads.some(l=>l.pipeline_id===p.id)){ toast('Mova os leads deste funil antes de excluí-lo','warn'); return; }
+    if(!confirm(`Excluir o funil "${p.name}"?`)) return;
+    const{error}=await sb.from('org_pipelines').delete().eq('id',p.id);
+    if(error){toast(error.message,'error');return;} await loadPipelines(); toast('Funil excluído','success'); renderSettings();
+  });
+  const addNiche=async()=>{
+    const name=($('niche-add-inp').value||'').trim(); if(!name) return;
+    const order_idx=S.niches.length;
+    const{error}=await sb.from('org_niches').insert({org_id:S.org.id,name,order_idx});
+    if(error){toast(error.message,'error');return;} await loadNiches(); renderSettings();
+  };
+  $('niche-add-btn')&&($('niche-add-btn').onclick=addNiche);
+  $('niche-add-inp')&&($('niche-add-inp').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); addNiche(); } }));
+  document.querySelectorAll('[data-niche]').forEach(el=>el.onclick=async()=>{
+    const{error}=await sb.from('org_niches').delete().eq('id',el.dataset.niche);
+    if(error){toast(error.message,'error');return;} await loadNiches(); renderSettings();
+  });
+  $('deal-stages-edit')&&($('deal-stages-edit').onclick=()=>{
+    stageEditorModal('Etapas de Negociação', dealStagesRaw(), async list=>{
+      const won=list.some(s=>s.key===WON())?WON():list[list.length-1].key;
+      const lost=list.some(s=>s.key===LOST())?LOST():null;
+      const{error}=await sb.from('org_deal_stages').upsert({org_id:S.org.id,stages:list,won_stage:won,lost_stage:lost,card_types:CARD_TYPES()},{onConflict:'org_id'});
+      if(error){toast(error.message,'error');return false;} await loadDealStagesCfg(); toast('Etapas salvas','success'); renderShell(); return true;
+    });
+  });
+  $('call-out-edit')&&($('call-out-edit').onclick=()=>{
+    stageEditorModal('Desfechos de Ligação', callOutcomesRaw(), async list=>{
+      const{error}=await sb.from('org_call_outcomes').upsert({org_id:S.org.id,outcomes:list},{onConflict:'org_id'});
+      if(error){toast(error.message,'error');return false;} await loadCallOutcomesCfg(); toast('Desfechos salvos','success'); renderShell(); return true;
+    });
   });
   $('st-logout').onclick=igpLogout;
   $('st-push-on')&&($('st-push-on').onclick=enablePush);
@@ -1485,12 +1633,16 @@ async function importExtensionLeads(incoming){
         if(raw.name && raw.name.toLowerCase()!==uk && nameIsHandle && raw.name.trim()!==(existing.name||'')) patch.name=raw.name.trim();
         if(Object.keys(patch).length){
           const { error }=await sb.from('leads').update(patch).eq('id',existing.id);
-          if(!error){ Object.assign(existing,patch); updated++; if(patch.status==='contato') becameContato.push(existing.id); }
+          if(!error){ Object.assign(existing,patch); updated++; if(patch.status&&isLastStage(patch.status,leadPipeline(existing))) becameContato.push(existing.id); }
         }
         continue;
       }
       const notes=[ raw.mutualFriends?`Amigos em comum: ${raw.mutualFriends}`:'', raw.notes||'', raw.profileUrl?`Perfil: ${raw.profileUrl}`:'' ].filter(Boolean).join(' · ');
-      const row={ name:raw.name||'', username:uk||'', phone:raw.phone||'', niche:raw.niche||'', status:raw.status||'novo', tipo:'comum', source:'extensao', ext_id:extId, added_at:raw.addedAt||new Date().toISOString(), notes };
+      // A extensão sempre fala o vocabulário fixo do funil padrão (novo/chamado/respondeu/contato) —
+      // por isso todo lead vindo dela entra no pipeline is_default da org.
+      const extPipeline=defaultPipeline();
+      const extStatus=(extPipeline&&STS(extPipeline).includes(raw.status))?raw.status:(STS(extPipeline)[0]||'novo');
+      const row={ name:raw.name||'', username:uk||'', phone:raw.phone||'', niche:raw.niche||'', status:extStatus, tipo:'comum', pipeline_id:extPipeline&&extPipeline.id, source:'extensao', ext_id:extId, added_at:raw.addedAt||new Date().toISOString(), notes };
       rows.push(row);
       if(extId) byExt.set(extId,row); if(uk) byUser.set(uk,row);
     }
@@ -1502,7 +1654,7 @@ async function importExtensionLeads(incoming){
     if(changed){
       await loadLeads(); await loadDeals();
       // garante negociação para todo lead que está em "contato" (novos ou atualizados)
-      for(const l of S.leads){ if(l.status==='contato'||l.tipo==='empresario') await ensureDealForLead(l.id); }
+      for(const l of S.leads){ if(isLastStage(l.status,leadPipeline(l))||l.tipo==='empresario') await ensureDealForLead(l.id); }
       renderShell();
       for(const cid of becameContato){ notifyLeadContato(S.leads.find(x=>x.id===cid)); }
       const parts=[];
@@ -1528,7 +1680,7 @@ async function boot(){
   if(prof&&prof.status==='blocked'){ $('app').classList.remove('show'); $('onboard').classList.add('hidden'); $('auth').classList.remove('hidden'); $('auth-card').innerHTML=`<div class="auth-h">Acesso bloqueado</div><div class="auth-sub">Fale com o administrador.</div><button class="btn-block" onclick="igpLogout()">Sair</button>`; return; }
   if(!prof||!prof.org_id){ renderOnboard(); return; }
   const { data:org }=await sb.from('orgs').select('*').eq('id',prof.org_id).single(); S.org=org;
-  await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); renderShell();
+  await loadOrgConfig(); await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); renderShell();
   bindBridge();
   subscribeMessages();
   ensurePushSubscription();   // re-inscreve este aparelho se já tem permissão

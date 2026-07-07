@@ -6,4 +6,8 @@ window.IGP_CONFIG = {
   // Notificações push (Web Push). Chave PÚBLICA VAPID — pode ficar exposta.
   // A chave PRIVADA correspondente vai como secret na Edge Function "notify" (NÃO colocar aqui).
   VAPID_PUBLIC_KEY:  'BA1Oos8-GIpl3JxcOD5yRJt5uf9H_1LaOt7BekaTYvoIZUehfrUt5lEGZmUkxUG3KDCUB3LotlIWEg27KDQrIQQ',
+  // URL do Cloudflare Worker que faz proxy da API do Agendor (contorna CORS).
+  // É a MESMA para todos os clientes do sistema — troque aqui, não por organização.
+  // Deixe em branco ('') até publicar o Worker; até lá o envio ao Agendor fica bloqueado por CORS.
+  AGENDOR_PROXY_URL: '',
 };
