@@ -9,5 +9,5 @@ window.IGP_CONFIG = {
   // URL do Cloudflare Worker que faz proxy da API do Agendor (contorna CORS).
   // É a MESMA para todos os clientes do sistema — troque aqui, não por organização.
   // Deixe em branco ('') até publicar o Worker; até lá o envio ao Agendor fica bloqueado por CORS.
-  AGENDOR_PROXY_URL: '',
+  AGENDOR_PROXY_URL: 'https://sweet-butterfly-7f2b.otaviodasc.workers.dev',
 };
