@@ -609,34 +609,51 @@ function normColKey(k){
   return String(k||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 }
 const IMPORT_FIELD_ALIASES = {
-  name:['nome','nomecompleto','name','lead','contato','fullname'],
+  name:['nome','nomecompleto','name','lead','fullname'],
   username:['usuario','username','instagram','perfil','handle','insta','ig','usuarioinstagram'],
-  phone:['telefone','phone','celular','whatsapp','fone','tel','contatotelefone'],
+  phone:['telefone','phone','celular','whatsapp','fone','tel','contatotelefone','contato','numero'],
   email:['email','emailaddress'],
   niche:['nicho','niche','categoria','segmento'],
-  notes:['notas','observacoes','observacao','obs','notes','comentarios'],
+  notes:['notas','observacoes','observacao','obs','notes','comentarios','situacao'],
   cidade:['cidade','city'],
   estado:['estado','uf','state'],
   cnpj:['cnpj'],
-  status:['status','etapa'],
   tipo:['tipo','type'],
   followers:['seguidores','followers'],
   following:['seguindo','following']
 };
-/* Converte um objeto de linha (colunas arbitrárias) num lead genérico */
+/* Converte um objeto de linha (colunas arbitrárias) num lead genérico.
+   Planilhas reais variam muito: coluna do nome às vezes vem sem cabeçalho,
+   e "Contato" costuma significar telefone, não nome — por isso o nome
+   nunca é aceito se vier puramente numérico, e colunas não reconhecidas
+   (situação, crédito, etc.) são preservadas em notes em vez de descartadas. */
 function mapImportedRow(row){
   const out={};
   const keys=Object.keys(row).map(k=>({raw:k,norm:normColKey(k)}));
+  const used=new Set();
   for(const field in IMPORT_FIELD_ALIASES){
     const aliases=IMPORT_FIELD_ALIASES[field];
-    const found=keys.find(k=>aliases.includes(k.norm));
-    if(found){ const v=row[found.raw]; if(v!==undefined&&v!==null&&String(v).trim()!=='') out[field]=String(v).trim(); }
+    const found=keys.find(k=>aliases.includes(k.norm)&&!used.has(k.raw));
+    if(found){ const v=row[found.raw]; if(v!==undefined&&v!==null&&String(v).trim()!==''){ out[field]=String(v).trim(); used.add(found.raw); } }
   }
+  if(out.name && /^[+\d\s().-]+$/.test(out.name)){ if(!out.phone) out.phone=out.name; delete out.name; }
+  if(!out.name){
+    const blank=keys.find(k=>/^__empty/i.test(k.raw)&&!used.has(k.raw)&&/[a-zà-ÿ]/i.test(String(row[k.raw]||'')));
+    if(blank){ out.name=String(row[blank.raw]).trim(); used.add(blank.raw); }
+  }
+  const extra=[];
+  for(const k of keys){
+    if(used.has(k.raw)||/^__empty/i.test(k.raw)) continue;
+    const v=row[k.raw];
+    if(v===undefined||v===null||String(v).trim()==='') continue;
+    extra.push(`${k.raw}: ${String(v).trim()}`);
+  }
+  if(extra.length) out.notes=[out.notes,extra.join(' | ')].filter(Boolean).join(' | ');
   return out;
 }
 /* Extrai leads de um texto/HTML de tabela via SheetJS (csv/tsv/xlsx/xls/ods) */
 function sheetToLeadRows(ws){
-  const json=XLSX.utils.sheet_to_json(ws,{defval:''});
+  const json=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
   return json.map(mapImportedRow).filter(r=>r.name||r.username);
 }
 /* Fallback para PDF: extrai texto e tenta achar @handles / telefones / emails linha a linha */
@@ -691,7 +708,7 @@ async function parseImportFile(f){
   }
   // xlsx, xls, ods, csv, tsv
   const buf=await f.arrayBuffer();
-  const wb=XLSX.read(buf,{type:'array'});
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
   const ws=wb.Sheets[wb.SheetNames[0]];
   return sheetToLeadRows(ws);
 }
