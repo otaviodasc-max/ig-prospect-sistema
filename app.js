@@ -381,7 +381,7 @@ async function loadOrgConfig(){ await Promise.all([loadPipelines(), loadNiches()
 
 // Membros ativos na organização atual (aba Relatórios — pagamento por pessoa)
 // e histórico de pagamentos semanais já confirmados (nunca some da tela).
-async function loadMembers(){ if(!S.org) return; const { data, error }=await sb.from('profiles').select('id,name,email').eq('org_id',S.org.id).order('name'); if(error){ S.members=[]; return; } S.members=data||[]; }
+async function loadMembers(){ if(!S.org) return; const { data, error }=await sb.from('profiles').select('id,name,email,org_role').eq('org_id',S.org.id).order('name'); if(error){ S.members=[]; return; } S.members=data||[]; }
 async function loadWeeklyPayments(){ const { data, error }=await sb.from('weekly_payments').select('*').order('week_start',{ascending:false}); if(error){ S.weeklyPayments=[]; return; } S.weeklyPayments=(data||[]).map(weeklyPaymentFromRow); }
 
 /* =====================================================================
@@ -1787,6 +1787,14 @@ function renderSettings(){
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(99,102,241,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div><div><div class="st-title">Seu espaço</div><div class="st-sub">${esc(S.org&&S.org.name||'—')} · você é ${owner?'dono(a)':'membro'}</div></div></div>
       <div class="stg-bd"><div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Código de convite</div><div class="stg-ri-s">Passe para um colega entrar no mesmo espaço</div></div><span class="code-pill">${esc(S.org&&S.org.join_code||'—')}</span></div>
         <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Módulo de profissão</div><div class="stg-ri-s">${MOD().icon} ${esc(MOD().name)} · define funil, termos e campos usados no sistema</div></div>${owner?`<select class="stg-input" id="st-module" style="max-width:200px">${(window.IGP_MODULE_ORDER||[]).map(id=>`<option value="${id}" ${id===MOD().id?'selected':''}>${window.IGP_MODULES[id].icon} ${window.IGP_MODULES[id].name}</option>`).join('')}</select>`:''}</div></div></div>
+    ${owner?`<div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(99,102,241,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#A5B4FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><div><div class="st-title">Equipe</div><div class="st-sub">Só donos podem remover membros ou promover outros donos</div></div></div>
+      <div class="stg-bd">
+        ${S.members.map(m=>{
+          const isMe=m.id===S.session.user.id, isOwner=m.org_role==='owner';
+          return `<div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">${esc(m.name||m.email||'—')}${isMe?' <span class="tag">você</span>':''}${isOwner?' <span class="tag" style="color:#FCD34D;background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.3)">dono</span>':''}</div><div class="stg-ri-s">${esc(m.email||'')}</div></div>
+            <div class="tbl-acts" style="opacity:1">${(!isOwner)?`<button class="act-btn" data-promote="${esc(m.id)}">★ Tornar dono</button>`:''}${(!isMe)?`<button class="act-btn act-del" data-remove="${esc(m.id)}">Remover</button>`:''}</div></div>`;
+        }).join('')||'<div class="empty-sub">Nenhum outro membro ainda.</div>'}
+      </div></div>`:''}
     <div class="stg-card"><div class="stg-hd"><div class="stg-hd-ico" style="background:rgba(139,92,246,.14)"><svg viewBox="0 0 24 24" fill="none" stroke="#C084FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg></div><div><div class="st-title">Aparência</div><div class="st-sub">Tema do sistema · salvo neste aparelho</div></div></div>
       <div class="stg-bd"><div class="theme-seg">
         <button class="theme-opt${curTheme==='dark'?' active':''}" data-theme-set="dark"><span class="theme-prev tp-dark"><i></i><b></b></span><span>Escuro</span></button>
@@ -1924,6 +1932,25 @@ function renderSettings(){
   $('st-push-on')&&($('st-push-on').onclick=enablePush);
   $('st-push-off')&&($('st-push-off').onclick=disablePush);
   document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>setTheme(b.dataset.themeSet));
+  // ---- Equipe (owner-only): promover a dono / remover membro ----
+  document.querySelectorAll('[data-promote]').forEach(b=>b.onclick=async()=>{
+    const m=S.members.find(x=>x.id===b.dataset.promote); if(!m)return;
+    if(!confirm(`Tornar ${m.name||m.email} dono também da equipe?`)) return;
+    b.disabled=true;
+    const{error}=await sb.rpc('promote_team_member',{p_user_id:m.id});
+    if(error){ toast(error.message,'error'); b.disabled=false; return; }
+    m.org_role='owner'; toast('Membro promovido a dono!','success'); renderSettings();
+  });
+  document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{
+    const m=S.members.find(x=>x.id===b.dataset.remove); if(!m)return;
+    openModal(`<div class="modal-ov"><div class="modal-box" style="max-width:430px"><div class="modal-hd"><div><div class="modal-title">Remover ${esc(m.name||m.email||'membro')}</div><div class="modal-sub">Ação permanente</div></div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="modal-bd"><p class="confirm-txt">Tem certeza que deseja remover <b>${esc(m.name||m.email||'este membro')}</b> da equipe? Ela(e) perde o acesso a este espaço imediatamente, mas os leads/vendas já cadastrados por ela(e) continuam aqui.</p></div><div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-danger" id="rm-ok">Remover</button></div></div></div>`);
+    $('rm-ok').onclick=async()=>{
+      $('rm-ok').disabled=true;
+      const{error}=await sb.rpc('remove_team_member',{p_user_id:m.id});
+      if(error){ toast(error.message,'error'); $('rm-ok').disabled=false; return; }
+      S.members=S.members.filter(x=>x.id!==m.id); closeModal(); toast('Membro removido da equipe','success'); renderSettings();
+    };
+  });
 }
 
 /* =====================================================================
