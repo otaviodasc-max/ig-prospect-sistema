@@ -19,9 +19,11 @@ applyTheme(currentTheme());
 const S = { session:null, profile:null, org:null, route:'dashboard', period:'all',
   leads:[], calls:[], deals:[], messages:[], unread:0, authMode:'login',
   pipelines:[], niches:[], dealStagesCfg:null, callOutcomesCfg:null,
+  members:[], weeklyPayments:[],
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
-  crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() } };
+  crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
+  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'' };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
 // Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
@@ -322,12 +324,13 @@ async function doJoinOrg(){ const code=$('ob-code').value.trim(); if(!code) retu
 /* =====================================================================
    DATA LAYER (mapeia snake_case <-> camelCase)
 ===================================================================== */
-const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', pipeline_id:r.pipeline_id, funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, customFields:r.custom_fields||{} });
+const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', pipeline_id:r.pipeline_id, funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, createdBy:r.created_by, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, customFields:r.custom_fields||{} });
 const leadToRow = l => { const o={ name:l.name, username:l.username, phone:l.phone, email:l.email, niche:l.niche, status:l.status, tipo:l.tipo, notes:l.notes, followers:l.followers, following:l.following }; if(l.pipeline_id!==undefined)o.pipeline_id=l.pipeline_id; if(l.source)o.source=l.source; if(l.customFields)o.custom_fields=l.customFields; return o; };
-const callFromRow = r => ({ id:r.id, leadId:r.lead_id, name:r.name, phone:r.phone, outcome:r.outcome||'nao_atendeu', duration:r.duration, at:r.at, notes:r.notes });
+const callFromRow = r => ({ id:r.id, leadId:r.lead_id, name:r.name, phone:r.phone, outcome:r.outcome||'nao_atendeu', duration:r.duration, at:r.at, notes:r.notes, createdBy:r.created_by });
 const callToRow = c => ({ lead_id:c.leadId||null, name:c.name, phone:c.phone, outcome:c.outcome, duration:c.duration, at:c.at, notes:c.notes });
-const dealFromRow = r => ({ id:r.id, orgId:r.org_id, leadId:r.lead_id, createdBy:r.created_by, prospectorName:r.prospector_name, status:r.status||'contato', cardType:r.card_type, cardValue:r.card_value, commissionValue:r.commission_value, commissionPct:r.commission_pct, commissionPaid:!!r.commission_paid, notes:r.notes, closedAt:r.closed_at, createdAt:r.created_at, leadName:r.leads&&r.leads.name, leadUsername:r.leads&&r.leads.username, leadPhone:r.leads&&r.leads.phone, leadNiche:r.leads&&r.leads.niche });
-const dealToRow = d => { const o={updated_at:new Date().toISOString()}; if(d.status!==undefined)o.status=d.status; if(d.cardType!==undefined)o.card_type=d.cardType||null; if(d.cardValue!==undefined)o.card_value=d.cardValue!=null&&d.cardValue!==''?Number(d.cardValue):null; if(d.commissionValue!==undefined)o.commission_value=d.commissionValue!=null&&d.commissionValue!==''?Number(d.commissionValue):null; if(d.commissionPct!==undefined)o.commission_pct=d.commissionPct!=null&&d.commissionPct!==''?Number(d.commissionPct):null; if(d.commissionPaid!==undefined)o.commission_paid=!!d.commissionPaid; if(d.notes!==undefined)o.notes=d.notes; if(d.closedAt!==undefined)o.closed_at=d.closedAt||null; return o; };
+const dealFromRow = r => ({ id:r.id, orgId:r.org_id, leadId:r.lead_id, createdBy:r.created_by, prospectorName:r.prospector_name, status:r.status||'contato', cardType:r.card_type, cardValue:r.card_value, commissionValue:r.commission_value, commissionPct:r.commission_pct, commissionPaid:!!r.commission_paid, paidAt:r.paid_at, report:r.report, notes:r.notes, closedAt:r.closed_at, createdAt:r.created_at, leadName:r.leads&&r.leads.name, leadUsername:r.leads&&r.leads.username, leadPhone:r.leads&&r.leads.phone, leadNiche:r.leads&&r.leads.niche });
+const dealToRow = d => { const o={updated_at:new Date().toISOString()}; if(d.status!==undefined)o.status=d.status; if(d.cardType!==undefined)o.card_type=d.cardType||null; if(d.cardValue!==undefined)o.card_value=d.cardValue!=null&&d.cardValue!==''?Number(d.cardValue):null; if(d.commissionValue!==undefined)o.commission_value=d.commissionValue!=null&&d.commissionValue!==''?Number(d.commissionValue):null; if(d.commissionPct!==undefined)o.commission_pct=d.commissionPct!=null&&d.commissionPct!==''?Number(d.commissionPct):null; if(d.commissionPaid!==undefined)o.commission_paid=!!d.commissionPaid; if(d.paidAt!==undefined)o.paid_at=d.paidAt||null; if(d.report!==undefined)o.report=d.report; if(d.notes!==undefined)o.notes=d.notes; if(d.closedAt!==undefined)o.closed_at=d.closedAt||null; return o; };
+const weeklyPaymentFromRow = r => ({ id:r.id, orgId:r.org_id, memberId:r.member_id, memberName:r.member_name, weekStart:r.week_start, weekEnd:r.week_end, prospectLeads:r.prospect_leads, prospectPay:Number(r.prospect_pay)||0, commissionPay:Number(r.commission_pay)||0, total:Number(r.total)||0, dealIds:r.deal_ids||[], createdAt:r.created_at });
 
 // Busca TODAS as linhas em páginas (Supabase limita cada consulta a 1000 linhas).
 // Sem isso, leads antigos (ex.: empresários de janeiro) ficavam fora das 1000 mais
@@ -347,6 +350,11 @@ async function loadNiches(){ const { data, error }=await sb.from('org_niches').s
 async function loadDealStagesCfg(){ if(!S.org) return; const { data }=await sb.from('org_deal_stages').select('*').eq('org_id',S.org.id).maybeSingle(); S.dealStagesCfg=data||null; }
 async function loadCallOutcomesCfg(){ if(!S.org) return; const { data }=await sb.from('org_call_outcomes').select('*').eq('org_id',S.org.id).maybeSingle(); S.callOutcomesCfg=data||null; }
 async function loadOrgConfig(){ await Promise.all([loadPipelines(), loadNiches(), loadDealStagesCfg(), loadCallOutcomesCfg()]); }
+
+// Membros ativos na organização atual (aba Relatórios — pagamento por pessoa)
+// e histórico de pagamentos semanais já confirmados (nunca some da tela).
+async function loadMembers(){ if(!S.org) return; const { data, error }=await sb.from('profiles').select('id,name,email').eq('org_id',S.org.id).order('name'); if(error){ S.members=[]; return; } S.members=data||[]; }
+async function loadWeeklyPayments(){ const { data, error }=await sb.from('weekly_payments').select('*').order('week_start',{ascending:false}); if(error){ S.weeklyPayments=[]; return; } S.weeklyPayments=(data||[]).map(weeklyPaymentFromRow); }
 
 /* =====================================================================
    METRICS / CHARTS (portados do original)
@@ -384,10 +392,11 @@ const NAV = [
   { k:'crm', label:'CRM', icon:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>' },
   { k:'deals', label:'Negociações', icon:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
   { k:'calls', label:'Ligações', icon:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>' },
+  { k:'relatorios', label:'Relatórios', icon:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V9"/><path d="M12 17V5"/><path d="M15 17v-3"/>' },
   { k:'team', label:'Equipe', icon:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' },
   { k:'settings', label:'Configurações', icon:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>' },
 ];
-function TAB_INFO_GET(){ const m=MOD(); return { dashboard:['Dashboard','Visão geral dos seus leads'], goals:['Metas do Mês','Acompanhe o progresso da equipe e bata as metas'], leads:['Leads','Gerencie e filtre sua base'], crm:['CRM · Pipeline','Arraste leads pelo funil'], deals:[m.labels.dealsTabTitle, m.labels.dealsTabSub], calls:['Ligações','Registre e acompanhe suas chamadas'], team:['Equipe','Recados e comunicados entre vocês'], settings:['Configurações','Espaço e integrações'], admin:['Painel Administrativo','Gestão da plataforma'] }; }
+function TAB_INFO_GET(){ const m=MOD(); return { dashboard:['Dashboard','Visão geral dos seus leads'], goals:['Metas do Mês','Acompanhe o progresso da equipe e bata as metas'], leads:['Leads','Gerencie e filtre sua base'], crm:['CRM · Pipeline','Arraste leads pelo funil'], deals:[m.labels.dealsTabTitle, m.labels.dealsTabSub], calls:['Ligações','Registre e acompanhe suas chamadas'], relatorios:['Relatórios','Pagamentos semanais, leads, ligações e vendas — histórico permanente'], team:['Equipe','Recados e comunicados entre vocês'], settings:['Configurações','Espaço e integrações'], admin:['Painel Administrativo','Gestão da plataforma'] }; }
 
 function renderShell(){
   $('auth').classList.add('hidden'); $('onboard').classList.add('hidden'); $('app').classList.add('show');
@@ -411,7 +420,7 @@ function renderShell(){
   $('period-tabs').querySelectorAll('.period-tab').forEach(t=>{ t.classList.toggle('active',t.dataset.period===S.period); t.onclick=()=>{ S.period=t.dataset.period; S.lf.page=1; S.cf.page=1; renderShell(); }; });
   routeRender();
 }
-function routeRender(){ ({dashboard:renderDashboard,goals:renderGoals,leads:renderLeads,crm:renderCRM,deals:renderDeals,calls:renderCalls,team:renderTeam,settings:renderSettings,admin:renderAdmin}[S.route]||renderDashboard)(); }
+function routeRender(){ ({dashboard:renderDashboard,goals:renderGoals,leads:renderLeads,crm:renderCRM,deals:renderDeals,calls:renderCalls,relatorios:renderRelatorios,team:renderTeam,settings:renderSettings,admin:renderAdmin}[S.route]||renderDashboard)(); }
 
 /* =====================================================================
    DASHBOARD
@@ -987,11 +996,12 @@ function dealForm(id){
     const isClosing=status===WON()||status===LOST();
     const closedAt=isClosing?(d.closedAt||new Date().toISOString()):null;
     const commissionPaid = status===WON() && $('df-paid') && $('df-paid').checked;
-    const patch=dealToRow({status,cardType,cardValue,commissionValue,commissionPct,commissionPaid,notes,closedAt});
+    const paidAt = commissionPaid ? (d.paidAt||new Date().toISOString()) : null;
+    const patch=dealToRow({status,cardType,cardValue,commissionValue,commissionPct,commissionPaid,paidAt,notes,closedAt});
     $('df-save').disabled=true;
     const{error}=await sb.from('deals').update(patch).eq('id',id);
     if(error){ toast(error.message,'error'); $('df-save').disabled=false; return; }
-    Object.assign(d,{status,cardType,cardValue:cardValue?Number(cardValue):null,commissionValue:commissionValue?Number(commissionValue):null,commissionPct:commissionPct?Number(commissionPct):null,commissionPaid,notes,closedAt});
+    Object.assign(d,{status,cardType,cardValue:cardValue?Number(cardValue):null,commissionValue:commissionValue?Number(commissionValue):null,commissionPct:commissionPct?Number(commissionPct):null,commissionPaid,paidAt,notes,closedAt});
     closeModal(); toast('Negociação atualizada!','success'); renderDeals();
   };
 }
@@ -1025,7 +1035,8 @@ function weeklyPay(){
   return { ws, we, dayRate, target, perLead, prospectLeads, prospectPay, unpaid, unpaidTotal, total:prospectPay+unpaidTotal };
 }
 function monthRange(){ const n=new Date(); return { s:new Date(n.getFullYear(),n.getMonth(),1), e:new Date(n.getFullYear(),n.getMonth()+1,1) }; }
-function weekRange(){ const n=new Date(); n.setHours(0,0,0,0); const dow=(n.getDay()+6)%7; const ws=new Date(n); ws.setDate(n.getDate()-dow); const we=new Date(ws); we.setDate(ws.getDate()+7); return { ws, we }; }
+// offset=0 → semana atual; offset=-1 → semana anterior; etc. (usado pela aba Relatórios p/ navegar semanas passadas)
+function weekRange(offset=0){ const n=new Date(); n.setHours(0,0,0,0); const dow=(n.getDay()+6)%7; const ws=new Date(n); ws.setDate(n.getDate()-dow+offset*7); const we=new Date(ws); we.setDate(ws.getDate()+7); return { ws, we }; }
 function motivMsg(pct,target){
   if(!target) return ['Defina uma meta para acompanhar o progresso.','var(--t3)'];
   if(pct>=100) return ['🎉 Meta batida! Sensacional, continue voando!','#10B981'];
@@ -1228,6 +1239,187 @@ function goalsForm(){
     const{error}=await sb.from('orgs').update({ settings }).eq('id',S.org.id);
     if(error){ toast(error.message,'error'); $('gf-save').disabled=false; return; }
     S.org.settings=settings; closeModal(); toast('Metas atualizadas!','success'); renderGoals();
+  };
+}
+
+/* =====================================================================
+   RELATÓRIOS — histórico permanente (nada some quando a semana vira):
+   pagamento semanal por membro da equipe, leads/ligações semana a semana
+   e relatório livre por venda/cliente.
+===================================================================== */
+const REL_VIEWS = [
+  { k:'pay',    label:'Pagamento semanal' },
+  { k:'leads',  label:'Leads por semana' },
+  { k:'calls',  label:'Ligações por semana' },
+  { k:'vendas', label:'Relatório de vendas' },
+];
+const isoDate = d => new Date(d).toISOString().slice(0,10);
+const fmtDateOnly = s => { if(!s) return '—'; const [y,m,dd]=String(s).split('-'); return `${dd}/${m}/${y}`; };
+const memberLabel = m => (m&&(m.name||m.email))||'—';
+
+// Métricas de uma semana [ws,we) para prospecção (leads) e comissões (deals vendidos),
+// opcionalmente filtradas por quem prospectou/vendeu (memberId = leads/deals.created_by).
+function weekReport(ws, we, memberId){
+  const inW = iso => { if(!iso) return false; const d=new Date(iso); return d>=ws && d<we; };
+  const g=getGoals(); const dayRate=g.payDayRate||0, target=g.payTargetPerDay||0;
+  const perLead = target>0 ? dayRate/target : 0;
+  const wkLeads = S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!memberId||l.createdBy===memberId));
+  const prospectLeads = wkLeads.length;
+  const prospectPay = prospectLeads*perLead;
+  const closedThisWeek = (S.deals||[]).filter(d=>d.status===WON() && inW(d.closedAt) && (!memberId||d.createdBy===memberId));
+  const nameOf = d => d.leadName||d.leadUsername||d.cardType||'Venda';
+  const pending = closedThisWeek.filter(d=>!d.commissionPaid).map(d=>({ id:d.id, name:nameOf(d), value:Number(d.commissionValue)||0, closedAt:d.closedAt }));
+  const paid = closedThisWeek.filter(d=>d.commissionPaid).map(d=>({ id:d.id, name:nameOf(d), value:Number(d.commissionValue)||0, paidAt:d.paidAt }));
+  const pendingTotal = pending.reduce((s,d)=>s+d.value,0);
+  return { prospectLeads, prospectPay, pending, paid, pendingTotal, total:prospectPay+pendingTotal, dealIds:pending.map(d=>d.id) };
+}
+
+function renderRelatorios(){
+  if(!REL_VIEWS.some(v=>v.k===S.relView)) S.relView='pay';
+  const showPay = MOD().features.weeklyPay;
+  if(S.relView==='pay' && !showPay) S.relView='leads';
+  const views = showPay ? REL_VIEWS : REL_VIEWS.filter(v=>v.k!=='pay');
+  const tabs = views.map(v=>`<div class="period-tab${S.relView===v.k?' active':''}" data-relv="${v.k}">${v.label}</div>`).join('');
+  $('content').innerHTML = `
+    <div class="tbl-controls">
+      <div style="flex:1"><div class="sec-title" style="margin:0">Relatórios</div><div class="sec-sub" style="margin:2px 0 0">Histórico permanente — nada some quando a semana vira.</div></div>
+      <div class="period-tabs">${tabs}</div>
+    </div>
+    <div id="rel-body"></div>`;
+  document.querySelectorAll('[data-relv]').forEach(b=>b.onclick=()=>{ S.relView=b.dataset.relv; renderRelatorios(); });
+  ({ pay:renderRelPay, leads:()=>renderRelWeekly('leads'), calls:()=>renderRelWeekly('calls'), vendas:renderRelVendas }[S.relView]||renderRelPay)();
+}
+
+function renderRelPay(){
+  if(!S.members.length){ $('rel-body').innerHTML='<div class="card" style="padding:24px;text-align:center;color:var(--t3);font-size:.8rem">Nenhum membro na equipe ainda.</div>'; return; }
+  if(!S.relMemberId || !S.members.some(m=>m.id===S.relMemberId)) S.relMemberId=(S.session&&S.session.user&&S.session.user.id)||S.members[0].id;
+  const off=S.relWeekOffset||0;
+  const { ws, we }=weekRange(off);
+  const wkLbl=`${ws.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} a ${new Date(we-1).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
+  const rep=weekReport(ws, we, S.relMemberId);
+  const saved=S.weeklyPayments.find(p=>p.memberId===S.relMemberId && p.weekStart===isoDate(ws));
+  const memberSel=S.members.length>1?`<select class="flt-sel" id="rel-member">${S.members.map(m=>`<option value="${esc(m.id)}" ${m.id===S.relMemberId?'selected':''}>${esc(memberLabel(m))}</option>`).join('')}</select>`:'';
+  const rowsHtml=(list,icon,color,dateLbl)=>list.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.72rem;padding:5px 0;border-bottom:1px dashed var(--border)"><span style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${icon} ${esc(d.name)}${d[dateLbl]?` <span style="color:var(--t3)">(${fmtDate(d[dateLbl])})</span>`:''}</span><span style="color:${color};font-weight:700;white-space:nowrap">${fmtCurrency(d.value)}</span></div>`).join('');
+  const pendRows=rep.pending.length?rowsHtml(rep.pending,'⏳','#FCD34D','closedAt'):'<div style="font-size:.72rem;color:var(--t3);padding:4px 0">Nenhuma comissão pendente nesta semana.</div>';
+  const paidRows=rowsHtml(rep.paid,'✅','#6EE7B7','paidAt');
+  $('rel-body').innerHTML=`
+    <div class="card" style="padding:20px;border-left:3px solid ${saved?'#10B981':'#F59E0B'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-outline btn-sm" id="rel-prev">‹</button>
+          <div><div style="font-weight:800;font-size:.95rem">Semana ${wkLbl}</div><div style="font-size:.72rem;color:var(--t3)">${off===0?'semana atual':off<0?`${-off} semana(s) atrás`:`daqui a ${off} semana(s)`}</div></div>
+          <button class="btn btn-outline btn-sm" id="rel-next" ${off>=0?'disabled':''}>›</button>
+          ${off!==0?'<button class="btn btn-outline btn-sm" id="rel-today">Hoje</button>':''}
+        </div>
+        ${memberSel}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
+        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${rep.prospectLeads} leads</div><div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#6366F1">${fmtCurrency(rep.prospectPay)}</div></div>
+        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Comissões pendentes</div><div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#F59E0B">${fmtCurrency(rep.pendingTotal)}</div></div>
+        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Total a receber</div><div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#10B981">${fmtCurrency(rep.total)}</div></div>
+      </div>
+      <div style="margin-bottom:14px"><div style="font-size:.68rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Comissões da semana</div>${pendRows}${paidRows}</div>
+      ${saved
+        ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:11px 13px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:10px"><span style="font-weight:700;font-size:.84rem;color:#10B981">✅ Pagamento confirmado</span><span style="font-size:.74rem;color:var(--t3)">${fmtCurrency(saved.total)} · confirmado em ${fmtDate(saved.createdAt)}</span></div>`
+        : `<button class="btn btn-primary" id="rel-confirm" ${rep.total<=0?'disabled':''}>Confirmar pagamento da semana (${fmtCurrency(rep.total)})</button>`}
+    </div>
+    <div class="card" style="padding:18px;margin-top:16px">
+      <div class="card-title" style="margin-bottom:10px">Histórico de pagamentos confirmados</div>
+      ${renderPayHistory(S.relMemberId)}
+    </div>`;
+  $('rel-prev').onclick=()=>{ S.relWeekOffset=off-1; renderRelPay(); };
+  $('rel-next').onclick=()=>{ if(off<0){ S.relWeekOffset=off+1; renderRelPay(); } };
+  const todayBtn=$('rel-today'); if(todayBtn) todayBtn.onclick=()=>{ S.relWeekOffset=0; renderRelPay(); };
+  const sel=$('rel-member'); if(sel) sel.onchange=e=>{ S.relMemberId=e.target.value; renderRelPay(); };
+  const cf=$('rel-confirm'); if(cf) cf.onclick=()=>confirmWeeklyPayment(ws, we, S.relMemberId, rep);
+}
+function renderPayHistory(memberId){
+  const rows=S.weeklyPayments.filter(p=>p.memberId===memberId).sort((a,b)=>b.weekStart.localeCompare(a.weekStart));
+  if(!rows.length) return '<div style="font-size:.74rem;color:var(--t3)">Nenhum pagamento confirmado ainda.</div>';
+  return rows.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.76rem;padding:8px 0;border-bottom:1px solid var(--border)"><span>${fmtDateOnly(p.weekStart)} a ${fmtDateOnly(p.weekEnd)}</span><span style="color:var(--t3);font-size:.7rem">${p.prospectLeads} leads · confirmado em ${fmtDate(p.createdAt)}</span><span style="font-weight:700;color:#10B981">${fmtCurrency(p.total)}</span></div>`).join('');
+}
+// "Confirmar pagamento" marca as comissões pendentes da semana como pagas (mesmo
+// campo commission_paid usado no formulário de negociação) e grava um snapshot
+// permanente em weekly_payments — daí em diante o valor nunca mais desaparece,
+// mesmo que a semana vire ou os leads/deals mudem de outra forma.
+async function confirmWeeklyPayment(ws, we, memberId, rep){
+  const btn=$('rel-confirm'); if(btn) btn.disabled=true;
+  const now=new Date().toISOString();
+  if(rep.dealIds.length){
+    const { error }=await sb.from('deals').update({ commission_paid:true, paid_at:now }).in('id',rep.dealIds);
+    if(error){ toast(error.message,'error'); if(btn)btn.disabled=false; return; }
+    rep.dealIds.forEach(id=>{ const d=S.deals.find(x=>x.id===id); if(d){ d.commissionPaid=true; d.paidAt=now; } });
+  }
+  const member=S.members.find(m=>m.id===memberId);
+  const row={ org_id:S.org.id, member_id:memberId, member_name:memberLabel(member), week_start:isoDate(ws), week_end:isoDate(new Date(we-1)),
+    prospect_leads:rep.prospectLeads, prospect_pay:rep.prospectPay, commission_pay:rep.pendingTotal, total:rep.total, deal_ids:rep.dealIds,
+    created_by:(S.session&&S.session.user&&S.session.user.id)||null };
+  const { data, error }=await sb.from('weekly_payments').upsert(row,{ onConflict:'org_id,member_id,week_start' }).select('*').single();
+  if(error){ toast(error.message,'error'); if(btn)btn.disabled=false; return; }
+  S.weeklyPayments=S.weeklyPayments.filter(p=>!(p.memberId===memberId&&p.weekStart===row.week_start));
+  S.weeklyPayments.push(weeklyPaymentFromRow(data));
+  toast('Pagamento confirmado!','success');
+  renderRelPay();
+}
+
+// Contagem semana a semana de leads/ligações — usa os dados já carregados
+// (têm data própria desde sempre), então dá pra olhar qualquer semana passada.
+function renderRelWeekly(kind){
+  const source = kind==='leads' ? S.leads.filter(l=>(l.tipo||'comum')!=='empresario') : S.calls;
+  const dateKey = kind==='leads' ? 'addedAt' : 'at';
+  const label = kind==='leads' ? 'Leads' : 'Ligações';
+  const weeksBack = S.relWeeksBack||12;
+  const rows=[];
+  for(let i=0;i<weeksBack;i++){
+    const { ws, we }=weekRange(-i);
+    const count=source.filter(x=>{ if(!x[dateKey]) return false; const d=new Date(x[dateKey]); return d>=ws&&d<we; }).length;
+    rows.push({ ws, we, count });
+  }
+  const maxV=Math.max(...rows.map(r=>r.count),1);
+  const listHtml=rows.map(r=>{
+    const w=Math.round(r.count/maxV*100);
+    const lbl=`${r.ws.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} a ${new Date(r.we-1).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}`;
+    return `<div class="funnel-row" style="grid-template-columns:160px 1fr 42px"><div class="funnel-lbl">${lbl}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:#6366F1;opacity:.82"><span>${r.count>0?r.count:''}</span></div></div><div class="funnel-cnt">${r.count}</div></div>`;
+  }).join('');
+  $('rel-body').innerHTML=`
+    <div class="card" style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div class="card-title" style="margin:0">${label} por semana</div><span style="font-size:.72rem;color:var(--t3)">últimas ${weeksBack} semanas</span></div>
+      <div class="funnel-wrap">${listHtml}</div>
+      <button class="btn btn-outline btn-sm" id="rel-more" style="margin-top:14px">Carregar mais semanas</button>
+    </div>`;
+  $('rel-more').onclick=()=>{ S.relWeeksBack=weeksBack+12; renderRelWeekly(kind); };
+}
+
+// Relatório livre por venda/cliente (deals.report) — editável a qualquer momento.
+function renderRelVendas(){
+  const q=(S.relQ||'').toLowerCase().trim();
+  const deals = q ? S.deals.filter(d=>(d.leadName||'').toLowerCase().includes(q)||(d.leadUsername||'').toLowerCase().includes(q)||(d.cardType||'').toLowerCase().includes(q)) : S.deals;
+  const sorted=[...deals].sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  const rows = sorted.length ? sorted.map(d=>{
+    const nm=d.leadName||d.leadUsername||'—';
+    const stLbl=DEAL_SM()[d.status]?DEAL_SM()[d.status].label:d.status;
+    const stColor2=DEAL_SC()[d.status]||'#64748B';
+    return `<div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div><div style="font-weight:700;font-size:.86rem">${esc(nm)}</div><div style="font-size:.7rem;color:var(--t3)">${d.leadPhone?esc(d.leadPhone)+' · ':''}${d.cardType?esc(d.cardType)+' · ':''}<span style="color:${stColor2}">${esc(stLbl)}</span></div></div>
+        <div style="text-align:right;font-size:.72rem;color:var(--t3)">${d.cardValue?fmtCurrency(d.cardValue):''}${d.commissionValue?' · comissão '+fmtCurrency(d.commissionValue):''}</div>
+      </div>
+      <div class="fld"><label>Relatório da venda</label><textarea data-report="${esc(d.id)}" placeholder="Anotações, histórico de negociação, follow-ups…">${esc(d.report||'')}</textarea></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-primary btn-sm" data-savereport="${esc(d.id)}">Salvar relatório</button></div>
+    </div>`;
+  }).join('') : '<div class="empty-state"><div class="empty-title">Nenhuma venda encontrada</div><div class="empty-sub">Vendas aparecem aqui automaticamente quando um lead vira negociação.</div></div>';
+  $('rel-body').innerHTML=`
+    <div class="search-wrap" style="margin-bottom:14px;max-width:340px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-inp" id="rel-vq" placeholder="Buscar cliente/venda…" value="${esc(S.relQ||'')}"></div>
+    ${rows}`;
+  $('rel-vq').oninput=e=>{ S.relQ=e.target.value; renderRelVendas(); refocus('rel-vq'); };
+  $('rel-body').onclick=async e=>{
+    const b=e.target.closest('[data-savereport]'); if(!b) return;
+    const id=b.dataset.savereport; const ta=$('rel-body').querySelector(`[data-report="${id}"]`); if(!ta) return;
+    b.disabled=true; b.textContent='Salvando…';
+    const { error }=await sb.from('deals').update({ report:ta.value }).eq('id',id);
+    if(error){ toast(error.message,'error'); b.disabled=false; b.textContent='Salvar relatório'; return; }
+    const d=S.deals.find(x=>x.id===id); if(d) d.report=ta.value;
+    toast('Relatório salvo!','success'); b.disabled=false; b.textContent='Salvar relatório';
   };
 }
 
@@ -1788,7 +1980,7 @@ async function boot(){
   if(prof&&prof.status==='blocked'){ $('app').classList.remove('show'); $('onboard').classList.add('hidden'); $('auth').classList.remove('hidden'); $('auth-card').innerHTML=`<div class="auth-h">Acesso bloqueado</div><div class="auth-sub">Fale com o administrador.</div><button class="btn-block" onclick="igpLogout()">Sair</button>`; return; }
   if(!prof||!prof.org_id){ renderOnboard(); return; }
   const { data:org }=await sb.from('orgs').select('*').eq('id',prof.org_id).single(); S.org=org;
-  await loadOrgConfig(); await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); renderShell();
+  await loadOrgConfig(); await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); await loadMembers(); await loadWeeklyPayments(); renderShell();
   bindBridge();
   subscribeMessages();
   ensurePushSubscription();   // re-inscreve este aparelho se já tem permissão
