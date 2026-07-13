@@ -985,7 +985,7 @@ function dealForm(id){
       <div class="fld full"><label>${esc(m.labels.cardTypeLabel)}</label><select id="df-cardtype">${ctOpts}</select></div>
       <div class="fld"><label>${esc(m.labels.cardValueLabel)} (R$)</label><input id="df-cardval" type="text" inputmode="decimal" value="${numberToMoney(d.cardValue)}" placeholder="0,00"></div>
       <div class="fld"><label>Comissão (R$)</label><input id="df-commval" type="text" inputmode="decimal" value="${numberToMoney(d.commissionValue)}" placeholder="0,00"></div>
-      <div class="fld full"><label>Comissão (%)</label><input id="df-commpct" type="number" min="0" max="100" step="0.01" value="${d.commissionPct!=null?d.commissionPct:''}" placeholder="Ex.: 2"></div>
+      <div class="fld full"><label>Comissão (%)</label><input id="df-commpct" type="number" min="0" max="100" step="0.01" value="${d.commissionPct!=null?d.commissionPct:getGoals().commissionPct}" placeholder="Ex.: 2"></div>
       <div class="fld full" id="df-date-wrap" style="display:${(d.status===WON()||d.status===LOST())?'flex':'none'}">
         <label>Data da venda/negociação</label>
         <input id="df-closeddate" type="date" value="${d.closedAt?isoDate(d.closedAt):''}">
@@ -1007,14 +1007,20 @@ function dealForm(id){
     </div></div></div>`);
 
   maskMoneyInput($('df-cardval')); maskMoneyInput($('df-commval'));
-  // Auto-calcular comissão R$ quando preencher o %
+  // Auto-calcular comissão R$ a partir do valor da carta × % (padrão vem de Metas,
+  // ajustável por negociação). Só recalcula enquanto o usuário não editar a
+  // comissão manualmente — a partir daí o valor digitado por ele prevalece.
+  let commTouched = d.commissionValue!=null;
+  $('df-commval').addEventListener('input', ()=>{ commTouched=true; });
   const calcComm=()=>{
-    const pct=parseFloat($('df-commpct').value);
-    const val=moneyToNumber($('df-cardval').value);
-    if(pct>0&&val>0&&!$('df-commval').value) $('df-commval').value=numberToMoney(val*pct/100);
+    if(commTouched) return;
+    const pct=parseFloat($('df-commpct').value)||0;
+    const val=moneyToNumber($('df-cardval').value)||0;
+    if(pct>0&&val>0) $('df-commval').value=numberToMoney(val*pct/100);
   };
-  $('df-commpct').addEventListener('blur',calcComm);
-  $('df-cardval').addEventListener('blur',calcComm);
+  $('df-commpct').addEventListener('input',calcComm);
+  $('df-cardval').addEventListener('input',calcComm);
+  calcComm();
   // mostra "Comissão paga" e "Data da venda" só quando a negociação estiver fechada (vendida/perdida)
   $('df-status').addEventListener('change',e=>{
     const isClose=e.target.value===WON()||e.target.value===LOST();
@@ -1053,7 +1059,7 @@ function delDeal(id){
 /* =====================================================================
    METAS (GOALS) — motivação da equipe (mensais, compartilhadas no espaço)
 ===================================================================== */
-function getGoals(){ const g=(S.org&&S.org.settings&&S.org.settings.goals)||{}; return { contacts:Number(g.contacts)||0, sales:Number(g.sales)||0, revenue:Number(g.revenue)||0, commission:Number(g.commission)||0, leadDailyMin:g.leadDailyMin!=null?Number(g.leadDailyMin):50, leadDailyMax:g.leadDailyMax!=null?Number(g.leadDailyMax):120, callsWeekly:Number(g.callsWeekly)||0, payDayRate:g.payDayRate!=null?Number(g.payDayRate):25, payTargetPerDay:g.payTargetPerDay!=null?Number(g.payTargetPerDay):50 }; }
+function getGoals(){ const g=(S.org&&S.org.settings&&S.org.settings.goals)||{}; return { contacts:Number(g.contacts)||0, sales:Number(g.sales)||0, revenue:Number(g.revenue)||0, commission:Number(g.commission)||0, leadDailyMin:g.leadDailyMin!=null?Number(g.leadDailyMin):50, leadDailyMax:g.leadDailyMax!=null?Number(g.leadDailyMax):120, callsWeekly:Number(g.callsWeekly)||0, payDayRate:g.payDayRate!=null?Number(g.payDayRate):25, payTargetPerDay:g.payTargetPerDay!=null?Number(g.payTargetPerDay):50, commissionPct:g.commissionPct!=null?Number(g.commissionPct):0.1 }; }
 
 // Cálculo do valor a pagar na semana ao prospector.
 // Modelo: paga-se "payDayRate" por dia ao prospectar "payTargetPerDay" leads do Instagram.
@@ -1260,6 +1266,12 @@ function goalsForm(){
         <div style="font-size:.68rem;color:var(--t3);margin-top:6px">Ex.: R$25/dia por 50 leads = R$0,50/lead. 120 leads num dia = R$60. O dashboard soma a semana e adiciona comissões de vendas ainda não pagas.</div>
       </div>
       <div style="height:1px;background:var(--border);margin:14px 0"></div>
+      <div style="font-size:.66rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Comissão padrão</div>
+      <div class="form-grid">
+        <div class="fld full"><label>% padrão sobre o valor da venda</label><input id="gf-commpct" type="number" min="0" max="100" step="0.01" value="${g.commissionPct}" placeholder="Ex.: 0.1"></div>
+      </div>
+      <div style="font-size:.68rem;color:var(--t3);margin-top:6px">Usada para calcular a comissão automaticamente ao cadastrar uma negociação (venda) — dá pra ajustar em cada negociação individualmente.</div>
+      <div style="height:1px;background:var(--border);margin:14px 0"></div>
       <div style="font-size:.66rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Mensal</div>
       <div class="form-grid">
         <div class="fld"><label>Meta de contatos</label><input id="gf-contacts" type="number" min="0" value="${g.contacts||''}" placeholder="Ex.: 40"></div>
@@ -1272,7 +1284,7 @@ function goalsForm(){
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="gf-save">Salvar metas</button></div></div></div>`);
   maskMoneyInput($('gf-pay-rate')); maskMoneyInput($('gf-revenue')); maskMoneyInput($('gf-commission'));
   $('gf-save').onclick=async()=>{
-    const newGoals={ contacts:parseInt($('gf-contacts').value)||0, sales:parseInt($('gf-sales').value)||0, revenue:moneyToNumber($('gf-revenue').value)||0, commission:moneyToNumber($('gf-commission').value)||0, leadDailyMin:parseInt($('gf-leadmin').value)||0, leadDailyMax:parseInt($('gf-leadmax').value)||0, callsWeekly:parseInt($('gf-callsweek').value)||0, payDayRate:moneyToNumber($('gf-pay-rate').value)||0, payTargetPerDay:parseInt($('gf-pay-target').value)||50 };
+    const newGoals={ contacts:parseInt($('gf-contacts').value)||0, sales:parseInt($('gf-sales').value)||0, revenue:moneyToNumber($('gf-revenue').value)||0, commission:moneyToNumber($('gf-commission').value)||0, leadDailyMin:parseInt($('gf-leadmin').value)||0, leadDailyMax:parseInt($('gf-leadmax').value)||0, callsWeekly:parseInt($('gf-callsweek').value)||0, payDayRate:moneyToNumber($('gf-pay-rate').value)||0, payTargetPerDay:parseInt($('gf-pay-target').value)||50, commissionPct:parseFloat($('gf-commpct').value)||0.1 };
     const settings={ ...(S.org.settings||{}), goals:newGoals };
     $('gf-save').disabled=true;
     const{error}=await sb.from('orgs').update({ settings }).eq('id',S.org.id);
