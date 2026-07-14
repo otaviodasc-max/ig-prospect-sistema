@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "IGProspect - CRM de Prospecção",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "description": "CRM no Instagram: detecta perfis, rastreia leads, converte por contato, sincroniza com Agendor e com o Painel Privado.",
   "permissions": ["storage"],
   "host_permissions": ["https://api.agendor.com.br/*"],
@@ -16,7 +16,7 @@
       "all_frames": false
     },
     {
-      "matches": ["file:///*igprospect-dashboard*.html", "https://*.netlify.app/*", "https://igprospectleads.netlify.app/*"],
+      "matches": ["file:///*igprospect-dashboard*.html", "https://*.netlify.app/*", "https://igprospectleads.netlify.app/*", "https://otaviodasc-max.github.io/*"],
       "js": ["bridge.js"],
       "run_at": "document_idle",
       "all_frames": false
