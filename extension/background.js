@@ -36,15 +36,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep message channel open for async response
   }
 
+  // Lista os membros ATIVOS da equipe (pra extensão perguntar "quem é
+  // você" na hora de conectar — sem isso, "prospectado por" fica em branco).
+  if (msg.type === 'resolve_org_members') {
+    const code = String(msg.code || '').trim();
+    if (!code) { sendResponse({ ok: false, error: 'Código vazio' }); return; }
+
+    callRpc('org_members_by_join_code', { p_code: code })
+      .then(async r => {
+        const data = await r.json().catch(() => null);
+        sendResponse({ ok: r.ok && Array.isArray(data), members: Array.isArray(data) ? data : [] });
+      })
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+
+    return true;
+  }
+
   // Grava o lead direto no banco, na hora — não depende do painel estar
   // aberto (nem em qual equipe ele está). Reconfirma o código por dentro
   // da função (ver org_by_join_code/extension_add_lead no Supabase).
   if (msg.type === 'add_lead_direct') {
-    const { code, lead } = msg;
+    const { code, lead, userId } = msg;
     callRpc('extension_add_lead', {
       p_code: code, p_ext_id: String(lead.id || ''), p_name: lead.name || '',
       p_username: lead.username || '', p_phone: lead.phone || '', p_niche: lead.niche || '',
       p_notes: lead.notes || '', p_status: lead.status || 'novo', p_added_at: lead.addedAt || null,
+      p_created_by: userId || null,
     })
       .then(async r => { sendResponse({ ok: r.ok, error: r.ok ? null : await r.text().catch(()=>'') }); })
       .catch(err => sendResponse({ ok: false, error: err.message }));

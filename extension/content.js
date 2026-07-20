@@ -114,8 +114,9 @@
     dateDay: new Date().toISOString().slice(0,10),    // YYYY-MM-DD
     dateMonth: new Date().getMonth(),                 // 0-11
     dateYear: new Date().getFullYear(),
-    org: null,       // {id,name,locked} — equipe vinculada por código (ver doLinkOrg)
+    org: null,       // {id,name,code,locked,userId,userName} — equipe vinculada por código (ver doLinkOrg)
     orgCodeInput: '',
+    orgMembers: [],  // membros da equipe conectada, pra escolher "quem é você" (doPickProspector)
   };
 
   // ═══════════════════════════════════════════════
@@ -648,6 +649,8 @@
     if(ti) ti.addEventListener('input',e=>{S.agendorTokenInput=e.target.value;});
     const oc=shadow.getElementById('igp-orgcode');
     if(oc) oc.addEventListener('input',e=>{S.orgCodeInput=e.target.value;});
+    const pr=shadow.getElementById('igp-prospector');
+    if(pr) pr.addEventListener('change',e=>doPickProspector(e.target.value));
 
     // Date filter pickers
     const dayPick=shadow.getElementById('igp-day-pick');
@@ -910,6 +913,14 @@
           <input id="igp-orgcode" class="inp" placeholder="Código da equipe (ex.: A1B2C3)" style="flex:1;font-size:12px;text-transform:uppercase" maxlength="12" value="${esc(S.orgCodeInput||'')}"/>
           <button class="btn-grad" data-a="link-org" style="padding:8px 14px;font-size:12px">${S.org?'Trocar':'Conectar'}</button>
         </div>
+        ${S.org?`
+        <div style="height:1px;background:#252525;margin:12px 0"></div>
+        <label style="font-size:11px;color:${S.org.userId?'#555':'#fbbf24'};display:block;margin-bottom:4px">${S.org.userId?'Quem é você':'⚠ Quem é você? — sem isso o lead não conta pra sua comissão'}</label>
+        <select id="igp-prospector" class="inp" style="font-size:12px">
+          <option value="">— selecione —</option>
+          ${S.orgMembers.map(m=>`<option value="${esc(m.user_id)}" ${S.org.userId===m.user_id?'selected':''}>${esc(m.name)}</option>`).join('')}
+        </select>
+        `:''}
       </div>
 
       <div class="card" style="margin-bottom:10px">
@@ -1030,10 +1041,13 @@
   // Sem equipe conectada, não captura nada — evita o lead ir pra equipe errada
   // (ou pra nenhuma). Manda o usuário direto pra tela de conectar.
   function requireOrg(){
-    if(S.org) return true;
-    toast('Conecte a equipe primeiro em ⚙️ Config','err');
-    S.tab='settings'; render();
-    return false;
+    if(!S.org){
+      toast('Conecte a equipe primeiro em ⚙️ Config','err');
+      S.tab='settings'; render();
+      return false;
+    }
+    if(!S.org.userId) toast('Lembre de dizer "quem é você" em ⚙️ Config — sem isso o lead não conta pra sua comissão','info');
+    return true;
   }
   function doAddLead(){
     if(!S.form.name.trim()) return;
@@ -1120,7 +1134,8 @@
     toast('Verificando código…','info');
     chrome.runtime.sendMessage({ type:'resolve_org_code', code }, res=>{
       if(!res||!res.ok||!res.org){ toast('Código inválido — confira em Configurações → Equipe no sistema','err'); return; }
-      S.org={ id:res.org.id, name:res.org.name, code, locked:true };
+      S.org={ id:res.org.id, name:res.org.name, code, locked:true, userId:null, userName:'' };
+      S.orgMembers=[];
       S.orgCodeInput='';
       db.save({igp_org:S.org});
       if(res.org.agendor_token){
@@ -1128,8 +1143,27 @@
         db.save({igp_tok:res.org.agendor_token});
       }
       renderBody();
-      toast(`✓ Conectado à equipe "${res.org.name}"`,'ok');
+      toast(`✓ Conectado à equipe "${res.org.name}" — falta dizer quem é você`,'ok');
+      chrome.runtime.sendMessage({ type:'resolve_org_members', code }, res2=>{
+        S.orgMembers=(res2&&res2.ok&&res2.members)||[];
+        if(S.orgMembers.length===1){ // só uma pessoa na equipe? já resolve sozinho
+          S.org.userId=S.orgMembers[0].user_id; S.org.userName=S.orgMembers[0].name;
+          db.save({igp_org:S.org});
+        }
+        renderBody();
+      });
     });
+  }
+
+  // "Quem é você" — sem isso o lead grava sem prospector (created_by nulo),
+  // e "prospectado por" fica em branco nos relatórios/comissão.
+  function doPickProspector(userId){
+    if(!S.org) return;
+    const m=S.orgMembers.find(x=>x.user_id===userId);
+    S.org={ ...S.org, userId: m?userId:null, userName: m?m.name:'' };
+    db.save({igp_org:S.org});
+    renderBody();
+    if(m) toast(`✓ Leads agora são prospectados por ${m.name}`,'ok');
   }
 
   // Grava o lead direto no Supabase da equipe conectada, na hora — não
@@ -1137,7 +1171,7 @@
   // internet, etc.) o lead continua salvo localmente e não trava a UI.
   function syncLeadAddDirect(lead){
     if(!S.org||!S.org.code) return;
-    chrome.runtime.sendMessage({ type:'add_lead_direct', code:S.org.code, lead }, res=>{
+    chrome.runtime.sendMessage({ type:'add_lead_direct', code:S.org.code, lead, userId:S.org.userId||null }, res=>{
       if(!res||!res.ok) console.warn('IGProspect: falha ao sincronizar lead direto', res&&res.error);
     });
   }
@@ -1175,6 +1209,14 @@
     if(d.igp_org) S.org=d.igp_org;
     render();
     extractProfile();
+    // Repopula a lista de membros pra poder trocar/confirmar "quem é você"
+    // sem precisar reconectar a equipe do zero a cada vez que a extensão recarrega.
+    if(S.org&&S.org.code){
+      chrome.runtime.sendMessage({ type:'resolve_org_members', code:S.org.code }, res=>{
+        S.orgMembers=(res&&res.ok&&res.members)||[];
+        if(S.open) renderBody();
+      });
+    }
   });
   // O painel (se aberto, na mesma equipe) ainda pode SUGERIR a equipe ativa —
   // mas nunca sobrescreve uma equipe travada aqui via código (ver doLinkOrg).
