@@ -22,7 +22,7 @@ const S = { session:null, profile:null, org:null, route:'dashboard', period:'all
   members:[], weeklyPayments:[], features:null,
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
-  crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
+  crmPipelineId:'', crmQ:'', dealQ:'', dealPipelineId:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
   relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'' };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
@@ -994,8 +994,14 @@ function renderDeals(){
     {lbl:'Volume vendido',val:totalVenda>0?fmtCurrency(totalVenda):'R$ 0',sub:`Comissões: ${totalComm>0?fmtCurrency(totalComm):'R$ 0'}`,cls:'kk-n'},
   ].map(k=>`<div class="kpi-card ${k.cls}"><div class="kpi-lbl">${k.lbl}</div><div class="kpi-val" style="font-size:${String(k.val).length>8?'1.25rem':'1.9rem'}">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
 
+  // Funil do lead por trás de cada negociação — permite separar Instagram × Empresários etc.
+  const dealPipelineId = d => { const l=d.leadId&&S.leads.find(x=>x.id===d.leadId); return (l&&l.pipeline_id) || (defaultPipeline()&&defaultPipeline().id); };
+  const activePl = S.dealPipelineId?pipelineById(S.dealPipelineId):null;
+  const byPipeline = activePl ? deals.filter(d=>dealPipelineId(d)===activePl.id) : deals;
   const dq=(S.dealQ||'').toLowerCase().trim();
-  const boardDeals = dq ? deals.filter(d=>(d.leadName||'').toLowerCase().includes(dq)||(d.leadUsername||'').toLowerCase().includes(dq)||(d.leadPhone||'').toLowerCase().includes(dq)||(d.cardType||'').toLowerCase().includes(dq)||(d.prospectorName||'').toLowerCase().includes(dq)) : deals;
+  const boardDeals = dq ? byPipeline.filter(d=>(d.leadName||'').toLowerCase().includes(dq)||(d.leadUsername||'').toLowerCase().includes(dq)||(d.leadPhone||'').toLowerCase().includes(dq)||(d.cardType||'').toLowerCase().includes(dq)||(d.prospectorName||'').toLowerCase().includes(dq)) : byPipeline;
+  const dealRail=[['','TODOS',deals.length],...S.pipelines.map(p=>[p.id,crmSigla(p.name),deals.filter(d=>dealPipelineId(d)===p.id).length])]
+    .map(([v,sg,n])=>`<button class="crm-rail-btn${S.dealPipelineId===v?' active':''}" data-dealpl="${v}" title="${esc(v?(S.pipelines.find(p=>p.id===v)||{}).name:'Todos os funis')} (${n})">${esc(sg)}${n?`<span class="rail-cnt">${n}</span>`:''}</button>`).join('');
   const dealSc=DEAL_SC(), dealSm=DEAL_SM();
   const board = DEAL_STS().map(st=>{
     const items=boardDeals.filter(d=>d.status===st).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
@@ -1025,14 +1031,12 @@ function renderDeals(){
     return `<div class="crm-col" data-status="${st}"><div class="crm-col-hd"><span class="crm-col-dot" style="background:${dealSc[st]}"></span><span class="crm-col-nm">${dealSm[st].label}</span><span class="crm-col-cnt">${items.length}</span></div><div class="crm-col-bd">${cards}</div></div>`;
   }).join('');
 
+  const boardHtml = total===0?`<div class="empty-state"><div class="empty-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="empty-title">Nenhuma negociação ainda</div><div class="empty-sub">Quando um lead marcar "Enviou Contato" no CRM, a negociação aparece aqui automaticamente.</div></div>`:((dq||activePl)&&!boardDeals.length)?`<div class="empty-state"><div class="empty-title">Nenhum resultado</div><div class="empty-sub">${dq?`Nada encontrado para "${esc(S.dealQ)}".`:'Nenhuma negociação neste funil.'}</div></div>`:board;
   $('content').innerHTML=`
     <div class="kpi-grid">${kcs}</div>
     <div class="tbl-controls"><div class="search-wrap" style="flex:0 1 280px;min-width:160px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input class="search-inp" id="deal-q" placeholder="Buscar negociação…" value="${esc(S.dealQ)}"></div><p class="sec-sub" style="margin:0;flex:1">${S.sel.mode?'Toque nos cartões para selecionar.':'Arraste entre colunas para mudar o status, ou clique no card para editar.'}</p>${selBar()}</div>
-    <div style="overflow-x:auto;margin:0 -2px">
-      <div class="crm-board" id="deal-board" style="grid-template-columns:repeat(${DEAL_STS().length},minmax(190px,1fr));min-width:${DEAL_STS().length*190}px">
-        ${total===0?`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="empty-title">Nenhuma negociação ainda</div><div class="empty-sub">Quando um lead marcar "Enviou Contato" no CRM, a negociação aparece aqui automaticamente.</div></div></div>`:(dq&&!boardDeals.length)?`<div style="grid-column:1/-1"><div class="empty-state"><div class="empty-title">Nenhum resultado</div><div class="empty-sub">Nada encontrado para "${esc(S.dealQ)}".</div></div></div>`:board}
-      </div>
-    </div>`;
+    <div class="crm-layout"><div class="crm-rail" id="deal-rail">${dealRail}</div><div class="crm-board-wrap"><div class="crm-board" id="deal-board">${boardHtml}</div></div></div>`;
+  $('deal-rail').onclick=e=>{ const t=e.target.closest('[data-dealpl]'); if(!t)return; S.dealPipelineId=t.dataset.dealpl; selReset(); renderDeals(); };
 
   const board2=$('deal-board'); if(!board2)return;
   let dragId=null;
