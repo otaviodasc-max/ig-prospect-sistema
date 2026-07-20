@@ -906,7 +906,7 @@ function importLeads(){
     }
     if(!rows.length){ toast('Nada novo para importar (já estão no sistema)','warn'); return; }
     toast(`Importando ${rows.length} leads…`);
-    for(let i=0;i<rows.length;i+=200){ const { error }=await sb.from('leads').insert(rows.slice(i,i+200)); if(error){ toast('Erro: '+error.message,'error'); return; } }
+    for(let i=0;i<rows.length;i+=200){ const { error }=await sb.from('leads').upsert(rows.slice(i,i+200),{onConflict:'org_id,ext_id',ignoreDuplicates:true}); if(error){ toast('Erro: '+error.message,'error'); return; } }
     await loadLeads(); await loadDeals(); await backfillEmpresarioDeals(); renderShell(); toast(`${rows.length} leads importados`,'success');
     if(unmatchedStatus) toast(`${unmatchedStatus} tinham uma situação que não bate com nenhuma etapa do funil — guardada nas notas do lead`,'warn');
   };
@@ -2236,7 +2236,11 @@ async function importExtensionLeads(incoming){
     }
     let changed=updated>0;
     if(rows.length){
-      const { error }=await sb.from('leads').insert(rows);
+      // upsert (não insert) + ignoreDuplicates: se outra sincronização concorrente
+      // (outra aba, outro aparelho) já gravou esse ext_id um instante antes, o
+      // índice único org_id+ext_id no banco barra a duplicata — não é mais só
+      // uma checagem no navegador, que pode perder a corrida entre dois syncs.
+      const { error }=await sb.from('leads').upsert(rows,{onConflict:'org_id,ext_id',ignoreDuplicates:true});
       if(error){ console.warn('sync ext:',error.message); } else { changed=true; rows.forEach(r=>{ if(r.ext_id) handledIds.push(r.ext_id); }); }
     }
     // Avisa a extensão pra tirar da fila local o que já foi gravado/confirmado
