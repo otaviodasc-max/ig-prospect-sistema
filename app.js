@@ -23,7 +23,7 @@ const S = { session:null, profile:null, org:null, route:'dashboard', period:'all
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
   crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
-  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'' };
+  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'', sbCollapsed:false };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
 // Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
@@ -503,14 +503,17 @@ function renderShell(){
   const isAdmin = S.profile&&S.profile.platform_role==='admin';
   if(S.route!=='admin' && !featOn(S.route)) S.route='dashboard';
   const openDeals = S.deals.filter(d=>d.status!==WON()&&d.status!==LOST()).length;
-  let nav = NAV.filter(n=>featOn(n.k)).map(n=>`<div class="nav-item ${S.route===n.k?'active':''}" data-route="${n.k}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${n.icon}</svg>${n.label}${n.k==='leads'&&S.leads.length?`<span class="nav-badge">${S.leads.length}</span>`:''}${n.k==='deals'&&openDeals?`<span class="nav-badge">${openDeals}</span>`:''}${n.k==='calls'&&S.calls.length?`<span class="nav-badge">${S.calls.length}</span>`:''}${n.k==='team'&&S.unread?`<span class="nav-badge" style="background:rgba(16,185,129,.22);color:#6EE7B7">${S.unread}</span>`:''}</div>`).join('');
-  if(isAdmin) nav += `<div class="s-sec">Plataforma</div><div class="nav-item ${S.route==='admin'?'active':''}" data-route="admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Admin</div>`;
+  let nav = NAV.filter(n=>featOn(n.k)).map(n=>`<div class="nav-item ${S.route===n.k?'active':''}" data-route="${n.k}" title="${esc(n.label)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${n.icon}</svg><span class="nav-lbl">${n.label}</span>${n.k==='leads'&&S.leads.length?`<span class="nav-badge">${S.leads.length}</span>`:''}${n.k==='deals'&&openDeals?`<span class="nav-badge">${openDeals}</span>`:''}${n.k==='calls'&&S.calls.length?`<span class="nav-badge">${S.calls.length}</span>`:''}${n.k==='team'&&S.unread?`<span class="nav-badge" style="background:rgba(16,185,129,.22);color:#6EE7B7">${S.unread}</span>`:''}</div>`).join('');
+  if(isAdmin) nav += `<div class="s-sec">Plataforma</div><div class="nav-item ${S.route==='admin'?'active':''}" data-route="admin" title="Admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span class="nav-lbl">Admin</span></div>`;
   $('s-nav').innerHTML=nav;
   $('s-user').textContent = (S.profile&&(S.profile.name||S.profile.email))||'—';
   $('s-org').textContent = ((S.org&&S.org.name)||'—') + (S.profile&&S.profile.org_role==='owner'?' · dono':'') + ' ▾';
   $('s-org').style.cursor='pointer'; $('s-org').title='Trocar de equipe';
   $('s-org').onclick=renderOrgSwitcher;
-  $('s-nav').querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>{ S.route=el.dataset.route; selReset(); $('app').classList.remove('sb-open'); renderShell(); });
+  $('app').classList.toggle('sb-collapsed', !!S.sbCollapsed);
+  $('sb-toggle').classList.toggle('flip', !!S.sbCollapsed);
+  $('sb-toggle').onclick=e=>{ e.stopPropagation(); S.sbCollapsed=!S.sbCollapsed; renderShell(); };
+  $('s-nav').querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>{ S.route=el.dataset.route; if(S.route==='crm'||S.route==='deals') S.sbCollapsed=true; selReset(); $('app').classList.remove('sb-open'); renderShell(); });
   // Menu gaveta no celular
   const mb=$('menu-btn'); if(mb) mb.onclick=()=>$('app').classList.toggle('sb-open');
   const ov=$('sb-overlay'); if(ov) ov.onclick=()=>$('app').classList.remove('sb-open');
@@ -2197,6 +2200,17 @@ async function boot(){
   bindBridge();
   subscribeMessages();
   ensurePushSubscription();   // re-inscreve este aparelho se já tem permissão
+  askOrgIfMultiple();
+}
+// Login novo (1ª vez nesta aba) + usuário pertence a mais de uma equipe →
+// pergunta qual quer acessar, em vez de simplesmente abrir a última usada.
+async function askOrgIfMultiple(){
+  const flagKey='igp_org_asked_'+(S.session&&S.session.user.id);
+  try{ if(sessionStorage.getItem(flagKey)) return; }catch(e){}
+  const { data:orgs, error }=await sb.rpc('my_orgs');
+  if(error||!orgs||orgs.length<2) return;
+  try{ sessionStorage.setItem(flagKey,'1'); }catch(e){}
+  renderOrgSwitcher();
 }
 // Conserta empresários antigos que entraram com status de prospecção (chamado etc.) → "A Contatar".
 // Roda uma vez; depois que todos estão normalizados vira no-op.
