@@ -84,7 +84,7 @@ canvas{display:block}
 /* ===== SHELL ===== */
 .app{display:none;min-height:100vh}
 .app.show{display:flex}
-.sidebar{width:var(--sbw);background:var(--sb-bg);border-right:1px solid var(--sb-bdr);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:width .18s ease;overflow:hidden}
+.sidebar{width:var(--sbw);background:var(--sb-bg);border-right:1px solid var(--sb-bdr);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:width .18s ease}
 .s-logo{padding:15px;border-bottom:1px solid var(--sb-bdr);display:flex;align-items:center;gap:10px;position:relative}
 .sb-toggle{position:absolute;top:16px;right:-13px;width:26px;height:26px;border-radius:50%;background:var(--sb-bg);border:1px solid var(--sb-bdr);color:var(--sb-txt);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:101;transition:transform .18s ease}
 .sb-toggle:hover{color:var(--sb-atx)}
