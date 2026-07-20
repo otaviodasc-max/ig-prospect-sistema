@@ -738,6 +738,8 @@ const IMPORT_FIELD_ALIASES = {
   estado:['estado','uf','state'],
   cnpj:['cnpj'],
   tipo:['tipo','type'],
+  status:['status','etapa','estagio','fase'],
+  addedAt:['dataquechamou','dataligacao','dataligou','dataadicionado','dataentrada','datacadastro','dataadicao','data'],
   followers:['seguidores','followers'],
   following:['seguindo','following']
 };
@@ -770,9 +772,21 @@ function mapImportedRow(row){
   if(extra.length) out.notes=[out.notes,extra.join(' | ')].filter(Boolean).join(' | ');
   return out;
 }
+// Muitas planilhas reais têm título/instruções antes da tabela de verdade
+// (ex.: "PLANILHA DE PROSPECÇÃO", linha de instrução, linha em branco, só
+// então "Nome, Data, Status…"). Acha a 1ª linha que bate com pelo menos um
+// cabeçalho conhecido, pra não ler a linha de título como se fosse o cabeçalho.
+function findHeaderRowIndex(ws){
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  const known=new Set(Object.values(IMPORT_FIELD_ALIASES).flat());
+  for(let i=0;i<Math.min(rows.length,20);i++){
+    if((rows[i]||[]).some(c=>known.has(normColKey(c)))) return i;
+  }
+  return 0;
+}
 /* Extrai leads de um texto/HTML de tabela via SheetJS (csv/tsv/xlsx/xls/ods) */
 function sheetToLeadRows(ws){
-  const json=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+  const json=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false,range:findHeaderRowIndex(ws)});
   return json.map(mapImportedRow).filter(r=>r.name||r.username);
 }
 /* Fallback para PDF: extrai texto e tenta achar @handles / telefones / emails linha a linha */
@@ -831,6 +845,37 @@ async function parseImportFile(f){
   const ws=wb.Sheets[wb.SheetNames[0]];
   return sheetToLeadRows(ws);
 }
+// "25/06/2026" (planilha BR) → ISO. Retorna null se não bater o formato.
+function parseBRDate(s){
+  const m=String(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(!m) return null;
+  let [,d,mo,y]=m; if(y.length===2) y='20'+y;
+  const dt=new Date(Date.UTC(+y,+mo-1,+d,12,0,0));
+  return isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+function normTxt(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+// Termos comuns de planilha de prospecção que não batem literalmente com o
+// nome da etapa, mas têm um equivalente óbvio no funil (chamou e não teve
+// resposta ainda = mesma coisa que a etapa "Chamado"; converteu = "Contato").
+const STATUS_SYNONYMS={ naorespondeu:'chamado', semresposta:'chamado', naoatendeu:'chamado', respondeucontato:'contato', envioucontato:'contato', convertido:'contato' };
+// Tenta casar o texto livre de status da planilha com uma etapa REAL do
+// funil da equipe (nunca inventa etapa nova) — por key, label, abreviação
+// ou um sinônimo comum. Sem bater com nada, retorna null (fica em notes).
+function matchStageKey(rawStatus, pipeline){
+  const nq=normTxt(rawStatus); if(!nq) return null;
+  const stages=stagesOf(pipeline);
+  // 1) bate exato com key/label/abreviação de uma etapa
+  let hit=stages.find(s=>normTxt(s.key)===nq||normTxt(s.label)===nq||normTxt(s.short)===nq);
+  if(hit) return hit.key;
+  // 2) sinônimo conhecido — checa ANTES do "contém", senão "não respondeu"
+  //    (que contém a palavra "respondeu") acabaria batendo com a etapa errada.
+  const syn=STATUS_SYNONYMS[nq];
+  if(syn){ const hit2=stages.find(s=>normTxt(s.key)===syn||normTxt(s.label).includes(syn)); if(hit2) return hit2.key; }
+  // 3) contém/é contido pelo nome da etapa — só como último recurso
+  hit=stages.find(s=>{ const nl=normTxt(s.label),ns=normTxt(s.short); return (nl&&(nq.includes(nl)||nl.includes(nq)))||(ns&&(nq.includes(ns)||ns.includes(nq))); });
+  if(hit) return hit.key;
+  return null;
+}
 function importLeads(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,.csv,.tsv,.xlsx,.xls,.ods,.html,.htm,.pdf';
   inp.onchange=async e=>{
@@ -839,23 +884,31 @@ function importLeads(){
     if(!arr||!arr.length){ toast('Arquivo inválido ou sem leads','error'); return; }
     const haveExt=new Set(S.leads.map(l=>l.extId).filter(Boolean));
     const haveUser=new Set(S.leads.map(l=>(l.username||'').toLowerCase()).filter(Boolean));
-    const rows=[];
+    const haveNameOnly=new Set(); // dedupe DENTRO do próprio arquivo quando não há @usuário/telefone pra comparar
+    const rows=[]; let unmatchedStatus=0;
     for(const l of arr){
       if(!l||(!l.name&&!l.username)) continue;
       const extId=String(l.id||l.agendorDealId||'');
       const uk=String(l.username||'').toLowerCase();
       if((extId&&haveExt.has(extId))||(uk&&haveUser.has(uk))) continue;
+      if(!uk&&!l.phone){ const nk=normTxt(l.name); if(nk&&haveNameOnly.has(nk)) continue; if(nk) haveNameOnly.add(nk); }
       haveExt.add(extId); if(uk) haveUser.add(uk);
       const tipo=l.tipo||'comum';
       // Empresários já são contatos → entram no funil marcado como "conta como empresário" (se a org tiver um)
       const pipeline = tipo==='empresario' ? (S.pipelines.find(p=>p.counts_as_empresario)||defaultPipeline()) : defaultPipeline();
-      const status = tipo==='empresario' ? (STS(pipeline)[0]||'a_contatar') : (l.status||STS(pipeline)[1]||STS(pipeline)[0]);
-      rows.push({ name:l.name||'', username:uk||'', phone:l.phone||'', email:l.email||'', niche:l.niche||'', status, tipo, pipeline_id:pipeline&&pipeline.id, funil:l.funil||null, cidade:l.cidade||null, estado:l.estado||null, cnpj:l.cnpj||null, notes:l.notes||'', source:l.source||'import', ext_id:extId||null, added_at:l.addedAt||new Date().toISOString() });
+      const rawStatus=(l.status||'').trim();
+      const matched=rawStatus?matchStageKey(rawStatus,pipeline):null;
+      if(rawStatus&&!matched) unmatchedStatus++;
+      const status = tipo==='empresario' ? (STS(pipeline)[0]||'a_contatar') : (matched||STS(pipeline)[1]||STS(pipeline)[0]);
+      const notes=[l.notes||'',(rawStatus&&!matched)?`Situação original da planilha: ${rawStatus}`:''].filter(Boolean).join(' | ');
+      const addedAt=parseBRDate(l.addedAt)||l.addedAt||new Date().toISOString();
+      rows.push({ name:l.name||'', username:uk||'', phone:l.phone||'', email:l.email||'', niche:l.niche||'', status, tipo, pipeline_id:pipeline&&pipeline.id, funil:l.funil||null, cidade:l.cidade||null, estado:l.estado||null, cnpj:l.cnpj||null, notes, source:l.source||'import', ext_id:extId||null, added_at:addedAt });
     }
     if(!rows.length){ toast('Nada novo para importar (já estão no sistema)','warn'); return; }
     toast(`Importando ${rows.length} leads…`);
     for(let i=0;i<rows.length;i+=200){ const { error }=await sb.from('leads').insert(rows.slice(i,i+200)); if(error){ toast('Erro: '+error.message,'error'); return; } }
     await loadLeads(); await loadDeals(); await backfillEmpresarioDeals(); renderShell(); toast(`${rows.length} leads importados`,'success');
+    if(unmatchedStatus) toast(`${unmatchedStatus} tinham uma situação que não bate com nenhuma etapa do funil — guardada nas notas do lead`,'warn');
   };
   inp.click();
 }
