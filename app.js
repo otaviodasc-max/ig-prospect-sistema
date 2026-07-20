@@ -870,6 +870,8 @@ function crmSigla(name){
   if(words.length>=2) return words.slice(0,3).map(w=>w[0]).join('').toUpperCase();
   return (name||'?').slice(0,3).toUpperCase();
 }
+// Sigla efetiva de um funil: a customizada em Configurações, senão a derivada do nome.
+function pipelineSigla(p){ return (p&&p.sigla&&p.sigla.trim())?p.sigla.trim().toUpperCase():crmSigla(p&&p.name); }
 function renderCRM(){
   const allP=inPeriod(S.leads,S.period);
   const active=S.crmPipelineId?pipelineById(S.crmPipelineId):null;
@@ -880,7 +882,7 @@ function renderCRM(){
   if(q) leads=leads.filter(l=>(l.name||'').toLowerCase().includes(q)||(l.username||'').toLowerCase().includes(q)||(l.phone||'').toLowerCase().includes(q)||(l.niche||'').toLowerCase().includes(q));
   const defCol = cols[0]||'novo';
   const bucket = l => { const s=l.status||defCol; return cols.includes(s)?s:defCol; };
-  const rail=[['','TODOS',allP.length],...S.pipelines.map(p=>[p.id,crmSigla(p.name),allP.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===p.id).length])]
+  const rail=[['','TODOS',allP.length],...S.pipelines.map(p=>[p.id,pipelineSigla(p),allP.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===p.id).length])]
     .map(([v,sg,n])=>`<button class="crm-rail-btn${S.crmPipelineId===v?' active':''}" data-crmpl="${v}" title="${esc(v?(S.pipelines.find(p=>p.id===v)||{}).name:'Todos os funis')} (${n})">${esc(sg)}${n?`<span class="rail-cnt">${n}</span>`:''}</button>`).join('');
   const board=cols.map(st=>{ const items=leads.filter(l=>bucket(l)===st).sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0));
     const cards=items.length?items.map(l=>`<div class="crm-card${S.sel.mode&&S.sel.ids.has(l.id)?' sel-on':''}" draggable="${!S.sel.mode}" data-id="${esc(l.id)}"><div class="crm-card-top">${selChk(l.id)}<div class="avatar">${esc(ini(l.name||l.username))}</div><div style="min-width:0;flex:1"><div class="crm-card-nm">${esc(l.name||l.username||'—')}</div><div class="crm-card-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}</div></div></div><div class="crm-card-meta">${l.niche?`<span class="tag">${esc(l.niche)}</span>`:''}${l.agendorPersonId&&agendorOn()?`<span class="info-chip" style="color:#6EE7B7">☁</span>`:''}</div></div>`).join(''):'<div class="crm-card-empty">Arraste aqui</div>';
@@ -1000,7 +1002,7 @@ function renderDeals(){
   const byPipeline = activePl ? deals.filter(d=>dealPipelineId(d)===activePl.id) : deals;
   const dq=(S.dealQ||'').toLowerCase().trim();
   const boardDeals = dq ? byPipeline.filter(d=>(d.leadName||'').toLowerCase().includes(dq)||(d.leadUsername||'').toLowerCase().includes(dq)||(d.leadPhone||'').toLowerCase().includes(dq)||(d.cardType||'').toLowerCase().includes(dq)||(d.prospectorName||'').toLowerCase().includes(dq)) : byPipeline;
-  const dealRail=[['','TODOS',deals.length],...S.pipelines.map(p=>[p.id,crmSigla(p.name),deals.filter(d=>dealPipelineId(d)===p.id).length])]
+  const dealRail=[['','TODOS',deals.length],...S.pipelines.map(p=>[p.id,pipelineSigla(p),deals.filter(d=>dealPipelineId(d)===p.id).length])]
     .map(([v,sg,n])=>`<button class="crm-rail-btn${S.dealPipelineId===v?' active':''}" data-dealpl="${v}" title="${esc(v?(S.pipelines.find(p=>p.id===v)||{}).name:'Todos os funis')} (${n})">${esc(sg)}${n?`<span class="rail-cnt">${n}</span>`:''}</button>`).join('');
   const dealSc=DEAL_SC(), dealSm=DEAL_SM();
   const board = DEAL_STS().map(st=>{
@@ -1921,7 +1923,7 @@ function renderSettings(){
       <div class="stg-bd">
         <div class="stg-ri-t">Etapas do CRM (Funis de Lead)</div>
         <div class="stg-ri-s" style="margin-bottom:8px">Controla as colunas da aba CRM. Cada funil tem suas próprias etapas — leads pertencem a um funil (ex.: "Instagram", "Empresários", "Indicação"). Clique em "Editar etapas" para renomear, recolorir, reordenar ou adicionar colunas do CRM.</div>
-        ${S.pipelines.map(p=>`<div class="stg-row" data-pl="${p.id}"><div class="stg-ri"><div class="stg-ri-t">${esc(p.icon||'')} ${esc(p.name)}${p.is_default?' <span class="tag">padrão</span>':''}</div><div class="stg-ri-s">${STS(p).length} etapa(s)</div></div><div class="tbl-acts">${!p.is_default?`<button class="act-btn" data-pl-default="${p.id}">★ Tornar padrão</button>`:''}<button class="act-btn" data-pl-edit="${p.id}">Editar etapas</button><button class="act-btn" data-pl-rename="${p.id}">Renomear</button><button class="act-btn act-del" data-pl-del="${p.id}">Excluir</button></div></div>`).join('')||'<div class="empty-sub">Nenhum funil ainda.</div>'}
+        ${S.pipelines.map(p=>`<div class="stg-row" data-pl="${p.id}"><div class="stg-ri"><div class="stg-ri-t">${esc(p.icon||'')} ${esc(p.name)}${p.is_default?' <span class="tag">padrão</span>':''} <span class="tag" title="Sigla usada no rail do CRM/Negociações">${esc(pipelineSigla(p))}</span></div><div class="stg-ri-s">${STS(p).length} etapa(s)</div></div><div class="tbl-acts">${!p.is_default?`<button class="act-btn" data-pl-default="${p.id}">★ Tornar padrão</button>`:''}<button class="act-btn" data-pl-edit="${p.id}">Editar etapas</button><button class="act-btn" data-pl-rename="${p.id}">Renomear</button><button class="act-btn" data-pl-sigla="${p.id}">Sigla</button><button class="act-btn act-del" data-pl-del="${p.id}">Excluir</button></div></div>`).join('')||'<div class="empty-sub">Nenhum funil ainda.</div>'}
         <button class="btn btn-outline btn-sm" id="pl-add" style="align-self:flex-start;margin-top:6px">+ Novo funil</button>
         <div style="height:1px;background:rgba(255,255,255,.06);margin:10px 0"></div>
         <div class="stg-ri-t">Nichos</div>
@@ -1986,6 +1988,13 @@ function renderSettings(){
     const name=(prompt('Novo nome do funil:',p.name)||'').trim(); if(!name||name===p.name) return;
     const{error}=await sb.from('org_pipelines').update({name}).eq('id',p.id);
     if(error){toast(error.message,'error');return;} await loadPipelines(); renderSettings();
+  });
+  document.querySelectorAll('[data-pl-sigla]').forEach(b=>b.onclick=async()=>{
+    const p=S.pipelines.find(x=>x.id===b.dataset.plSigla); if(!p)return;
+    const raw=(prompt('Sigla do funil (2-4 letras, usada no rail do CRM/Negociações):',p.sigla||pipelineSigla(p))||'').trim().toUpperCase().slice(0,4);
+    if(!raw||raw===(p.sigla||'')) return;
+    const{error}=await sb.from('org_pipelines').update({sigla:raw}).eq('id',p.id);
+    if(error){toast(error.message,'error');return;} await loadPipelines(); toast('Sigla atualizada','success'); renderSettings();
   });
   document.querySelectorAll('[data-pl-default]').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.plDefault;
