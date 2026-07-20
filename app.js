@@ -23,7 +23,7 @@ const S = { session:null, profile:null, org:null, route:'dashboard', period:'all
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
   crmPipelineId:'', crmQ:'', dealQ:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
-  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'', sbCollapsed:false };
+  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'' };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
 // Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
@@ -510,10 +510,7 @@ function renderShell(){
   $('s-org').textContent = ((S.org&&S.org.name)||'—') + (S.profile&&S.profile.org_role==='owner'?' · dono':'') + ' ▾';
   $('s-org').style.cursor='pointer'; $('s-org').title='Trocar de equipe';
   $('s-org').onclick=renderOrgSwitcher;
-  $('app').classList.toggle('sb-collapsed', !!S.sbCollapsed);
-  $('sb-toggle').classList.toggle('flip', !!S.sbCollapsed);
-  $('sb-toggle').onclick=e=>{ e.stopPropagation(); S.sbCollapsed=!S.sbCollapsed; renderShell(); };
-  $('s-nav').querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>{ S.route=el.dataset.route; if(S.route==='crm'||S.route==='deals') S.sbCollapsed=true; selReset(); $('app').classList.remove('sb-open'); renderShell(); });
+  $('s-nav').querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>{ S.route=el.dataset.route; selReset(); $('app').classList.remove('sb-open'); renderShell(); });
   // Menu gaveta no celular
   const mb=$('menu-btn'); if(mb) mb.onclick=()=>$('app').classList.toggle('sb-open');
   const ov=$('sb-overlay'); if(ov) ov.onclick=()=>$('app').classList.remove('sb-open');

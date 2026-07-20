@@ -86,10 +86,6 @@ canvas{display:block}
 .app.show{display:flex}
 .sidebar{width:var(--sbw);background:var(--sb-bg);border-right:1px solid var(--sb-bdr);display:flex;flex-direction:column;position:fixed;inset:0 auto 0 0;z-index:100;transition:width .18s ease}
 .s-logo{padding:15px;border-bottom:1px solid var(--sb-bdr);display:flex;align-items:center;gap:10px;position:relative}
-.sb-toggle{position:absolute;top:16px;right:-13px;width:26px;height:26px;border-radius:50%;background:var(--sb-bg);border:1px solid var(--sb-bdr);color:var(--sb-txt);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:101;transition:transform .18s ease}
-.sb-toggle:hover{color:var(--sb-atx)}
-.sb-toggle svg{width:13px;height:13px}
-.sb-toggle.flip svg{transform:rotate(180deg)}
 .s-logo .logo-ico{width:33px;height:33px;border-radius:8px;box-shadow:0 0 14px rgba(99,102,241,.4)}
 .s-logo .logo-ico svg{width:16px;height:16px}
 .s-logo .l1{font-family:'Plus Jakarta Sans',sans-serif;font-size:.75rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#DDE4FF}
@@ -109,23 +105,22 @@ canvas{display:block}
 .logout svg{width:12px;height:12px}
 .main{margin-left:var(--sbw);flex:1;min-height:100vh;display:flex;flex-direction:column;width:calc(100% - var(--sbw));transition:margin-left .18s ease,width .18s ease}
 
-/* Sidebar recolhida: vira uma trilha só de ícones; passar o mouse por cima
-   reabre como flyout (sobrepõe o conteúdo, sem empurrar o layout). */
+/* Sidebar fica sempre recolhida (trilha só de ícones); passar o mouse por
+   cima reabre como flyout (sobrepõe o conteúdo, sem empurrar o layout). */
 @media(min-width:861px){
-  .app.sb-collapsed .sidebar{width:64px}
-  .app.sb-collapsed .main{margin-left:64px;width:calc(100% - 64px)}
-  .app.sb-collapsed .sidebar:hover{width:var(--sbw);box-shadow:var(--shx)}
-  .app.sb-collapsed .sidebar:not(:hover) .s-logo .l1,
-  .app.sb-collapsed .sidebar:not(:hover) .s-logo .l2,
-  .app.sb-collapsed .sidebar:not(:hover) .nav-lbl,
-  .app.sb-collapsed .sidebar:not(:hover) .nav-badge,
-  .app.sb-collapsed .sidebar:not(:hover) .s-user,
-  .app.sb-collapsed .sidebar:not(:hover) .s-org,
-  .app.sb-collapsed .sidebar:not(:hover) .logout,
-  .app.sb-collapsed .sidebar:not(:hover) .s-sec{display:none}
-  .app.sb-collapsed .sidebar:not(:hover) .nav-item{justify-content:center}
-  .app.sb-collapsed .sidebar:not(:hover) .s-foot{display:flex;justify-content:center}
-  .app.sb-collapsed .sb-toggle{right:-13px}
+  .sidebar{width:64px}
+  .main{margin-left:64px;width:calc(100% - 64px)}
+  .sidebar:hover{width:var(--sbw);box-shadow:var(--shx)}
+  .sidebar:not(:hover) .s-logo .l1,
+  .sidebar:not(:hover) .s-logo .l2,
+  .sidebar:not(:hover) .nav-lbl,
+  .sidebar:not(:hover) .nav-badge,
+  .sidebar:not(:hover) .s-user,
+  .sidebar:not(:hover) .s-org,
+  .sidebar:not(:hover) .logout,
+  .sidebar:not(:hover) .s-sec{display:none}
+  .sidebar:not(:hover) .nav-item{justify-content:center}
+  .sidebar:not(:hover) .s-foot{display:flex;justify-content:center}
 }
 .topbar{height:var(--tbh);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;position:sticky;top:0;z-index:90}
 .tb-info{flex:1;min-width:0}
