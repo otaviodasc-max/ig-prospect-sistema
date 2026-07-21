@@ -142,34 +142,55 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Cria a pessoa e, se um destino de etapa foi mapeado (msg.deal), cria
+  // também o negócio já na etapa certa — antes só criava a pessoa, o
+  // negócio/etapa sempre dependia do painel estar aberto depois.
   if (msg.type === 'agendor_create_person') {
-    const { token, person } = msg;
+    const { token, person, deal } = msg;
+    const headers = { 'Authorization': `Token ${token}`, 'Content-Type': 'application/json' };
 
-    fetch('https://api.agendor.com.br/v3/people', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: person.name,
-        contact: {
-          mobile: person.phone || '',
-          instagram: person.instagram || '',
-        },
-        description: [
-          person.niche    ? `Nicho: ${person.niche}`          : '',
-          person.mutual   ? `Amigos em comum: ${person.mutual}`: '',
-          person.notes    ? `Obs: ${person.notes}`             : '',
-          person.profileUrl ? `Perfil: ${person.profileUrl}`  : '',
-        ].filter(Boolean).join('\n'),
-      }),
-    })
-      .then(async r => {
-        const data = await r.json().catch(() => ({}));
-        sendResponse({ ok: r.ok, status: r.status, data });
-      })
-      .catch(err => sendResponse({ ok: false, error: err.message }));
+    (async () => {
+      try {
+        const pr = await fetch('https://api.agendor.com.br/v3/people', {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            name: person.name,
+            contact: { mobile: person.phone || '', instagram: person.instagram || '' },
+            description: [
+              person.niche    ? `Nicho: ${person.niche}`          : '',
+              person.mutual   ? `Amigos em comum: ${person.mutual}`: '',
+              person.notes    ? `Obs: ${person.notes}`             : '',
+              person.profileUrl ? `Perfil: ${person.profileUrl}`  : '',
+            ].filter(Boolean).join('\n'),
+          }),
+        });
+        const pdata = await pr.json().catch(() => ({}));
+        if (!pr.ok) { sendResponse({ ok: false, status: pr.status, data: pdata }); return; }
+        const personId = (pdata && pdata.data && pdata.data.id) || (pdata && pdata.id);
+
+        let dealId = null;
+        if (personId && deal && deal.dealStage && deal.funnel) {
+          const dr = await fetch(`https://api.agendor.com.br/v3/people/${personId}/deals`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ title: deal.title, dealStage: deal.dealStage, funnel: deal.funnel, description: deal.description || '' }),
+          });
+          const ddata = await dr.json().catch(() => ({}));
+          dealId = (ddata && ddata.data && ddata.data.id) || (ddata && ddata.id) || null;
+          // Reforço: o Agendor às vezes não respeita dealStage já no POST de
+          // criação — um PUT logo depois garante que o negócio nasça na
+          // etapa certa (mesma lógica do painel, ver app.js sendLeadToAgendor).
+          if (dealId) {
+            try {
+              await fetch(`https://api.agendor.com.br/v3/deals/${dealId}`, {
+                method: 'PUT', headers,
+                body: JSON.stringify({ dealStage: deal.dealStage, funnel: deal.funnel }),
+              });
+            } catch (e) { /* pessoa+negócio já existem; falha aqui só deixa a etapa por conferir */ }
+          }
+        }
+        sendResponse({ ok: true, status: pr.status, data: pdata, dealId });
+      } catch (err) { sendResponse({ ok: false, error: err.message }); }
+    })();
 
     return true; // keep message channel open for async response
   }

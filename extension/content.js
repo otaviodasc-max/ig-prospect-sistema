@@ -106,9 +106,19 @@
   function currentStatuses(){ return (S.pipelineStages&&S.pipelineStages.length)?S.pipelineStages:DEFAULT_STATUSES; }
   function statusIdx(key){ const i=currentStatuses().findIndex(s=>s.key===key); return i<0?0:i; }
   function isFirstStatus(key){ return statusIdx(key)===0; }
-  function isLastStatus(key){ return statusIdx(key)===currentStatuses().length-1; }
   function firstStatusKey(){ return currentStatuses()[0].key; }
   function lastStatusKey(){ const a=currentStatuses(); return a[a.length-1].key; }
+  // Etapa que representa "Enviou Contato" de verdade — funis customizados
+  // podem ter colunas DEPOIS dela (ex.: "Follow-up"), então "a última etapa"
+  // deixa de ser sinônimo de "enviou contato" assim que isso acontece. Usa a
+  // etapa de key 'contato' (vocabulário fixo da extensão) se ela existir;
+  // só cai pro fallback de "última etapa" em funis sem esse vocabulário.
+  function contactStatusKey(){ const a=currentStatuses(); const c=a.find(s=>s.key==='contato'); return c?c.key:lastStatusKey(); }
+  // "Já contatado" pro resto da UI (contador de convertidos, aba Contatos,
+  // destaque rosa no card) — precisa ser POSIÇÃO >= a etapa 'contato', não só
+  // "é a última etapa", senão um lead em "Enviou Contato" some das métricas
+  // assim que o funil ganha uma coluna depois dela (ex.: "Follow-up").
+  function isContacted(status){ const a=currentStatuses(); const ci=a.findIndex(s=>s.key==='contato'); const anchor=ci>=0?ci:a.length-1; return statusIdx(status)>=anchor; }
   const RESERVED = new Set(['explore','reel','reels','p','tv','stories','accounts','direct','notifications','ar','challenges','audio','shop','about','privacy','help','']);
   // Títulos genéricos de seção do Instagram que às vezes acabam parando onde
   // deveria estar o nome da pessoa (fallback de heading pego errado no Direct).
@@ -141,13 +151,14 @@
     orgCodeInput: '',
     orgMembers: [],  // membros da equipe conectada, pra escolher "quem é você" (doPickProspector)
     pipelineStages: null, // etapas reais do funil da equipe (ver currentStatuses/mapPipelineStages)
+    agendorMap: null, // mapeamento etapa→funil/etapa do Agendor (Configurações → Integração Agendor), ver agendorStageFor
   };
 
   // ═══════════════════════════════════════════════
   // STORAGE
   // ═══════════════════════════════════════════════
   const db = {
-    load: () => new Promise(r => chrome.storage.local.get(['igp_l','igp_tok','igp_org','igp_stages','igp_leads_pulled_at','igp_sync_times','igp_sync_paused'], r)),
+    load: () => new Promise(r => chrome.storage.local.get(['igp_l','igp_tok','igp_org','igp_stages','igp_agendor_map','igp_leads_pulled_at','igp_sync_times','igp_sync_paused'], r)),
     save: d  => new Promise(r => chrome.storage.local.set(d, r)),
   };
 
@@ -261,13 +272,13 @@
     const ct = tl.filter(l=>!isFirstStatus(l.status)).length;
     const tc = S.leads.filter(l=>!isFirstStatus(l.status)).length;
     const re = S.leads.filter(l=>statusIdx(l.status)>=respFrom).length;
-    const cv = S.leads.filter(l=>isLastStatus(l.status)).length;
+    const cv = S.leads.filter(l=>isContacted(l.status)).length;
 
     // Period-filtered metrics
     const pl = leadsInPeriod(S.leads);
     const pCalled = pl.filter(l=>!isFirstStatus(l.status)).length;
     const pResp   = pl.filter(l=>statusIdx(l.status)>=respFrom).length;
-    const pConv   = pl.filter(l=>isLastStatus(l.status)).length;
+    const pConv   = pl.filter(l=>isContacted(l.status)).length;
 
     return {
       todayLeads:tl, calledToday:ct, totalCalled:tc, responded:re, converted:cv,
@@ -526,7 +537,7 @@
     const d=S.directDetect;
     if(!d){ bar.className=''; bar.innerHTML=''; return; }
     const lead=d.leadId?S.leads.find(l=>l.id===d.leadId):null;
-    const already=lead && isLastStatus(lead.status) && (lead.phone||'').replace(/\D/g,'')===d.phone.replace(/\D/g,'');
+    const already=lead && isContacted(lead.status) && (lead.phone||'').replace(/\D/g,'')===d.phone.replace(/\D/g,'');
     bar.innerHTML=`
       <div style="font-size:12px;font-weight:600;color:#f472b6">📱 Número detectado na conversa</div>
       <div style="font-size:15px;font-weight:700;color:#fff;margin-top:3px">${esc(d.phone)}</div>
@@ -558,10 +569,10 @@
     }
     if(!lead){ toast('Abra o perfil do lead primeiro','info'); return; }
     const now=new Date().toISOString();
-    S.leads=S.leads.map(l=>l.id===lead.id?{...l,status:lastStatusKey(),phone:d.phone,convertedAt:l.convertedAt||now}:l);
+    S.leads=S.leads.map(l=>l.id===lead.id?{...l,status:contactStatusKey(),phone:d.phone,convertedAt:l.convertedAt||now}:l);
     db.save({igp_l:S.leads});
-    if(wasNew) syncLeadAddDirect({...lead,status:lastStatusKey(),phone:d.phone});
-    else syncLeadUpdateDirect(lead.id,{status:lastStatusKey(),phone:d.phone});
+    if(wasNew) syncLeadAddDirect({...lead,status:contactStatusKey(),phone:d.phone});
+    else syncLeadUpdateDirect(lead.id,{status:contactStatusKey(),phone:d.phone});
     const updated=S.leads.find(l=>l.id===lead.id);
     S.directDetect=null; _lastDirectKey='';
     if(S.open) renderBody(); else updateDirectBar();
@@ -595,28 +606,40 @@
   function syncAgendor(lead) {
     if (!S.agendorToken||!lead.phone) return;
     if (lead.agendorManual||lead.agendorId) return;
+    // Sem destino mapeado pra etapa atual, não envia — mesma regra do painel
+    // (Configurações → Roteamento por etapa: "etapas sem mapeamento não são
+    // enviadas"). Antes a extensão criava só a pessoa, sempre, ignorando isso.
+    const map=agendorStageFor(lead);
+    if (!map||!map.stageId) return;
     S.agendorStatus[lead.id]='syncing';
     renderBody();
+    const displayName=agendorName(lead);
     chrome.runtime.sendMessage({
       type: 'agendor_create_person',
       token: S.agendorToken,
       person: {
-        name:       agendorName(lead),
+        name:       displayName,
         phone:      lead.phone,
         instagram:  lead.username||'',
         niche:      lead.niche||'',
         mutual:     lead.mutualFriends||'',
         notes:      lead.notes||'',
         profileUrl: lead.profileUrl||'',
+      },
+      deal: {
+        title: displayName,
+        dealStage: map.stageOrder,
+        funnel: map.funnelId,
+        description: `Enviado pelo IGProspect (funil ${map.funnelName}).`,
       }
     }, resp=>{
       if (chrome.runtime.lastError) { S.agendorStatus[lead.id]='error'; toast('Erro ao conectar com Agendor','err'); renderBody(); return; }
       if (resp&&resp.ok) {
         S.agendorStatus[lead.id]='ok';
         const agendorId = resp.data&&(resp.data.id||(resp.data.data&&resp.data.data.id));
-        S.leads=S.leads.map(l=>l.id===lead.id?{...l,agendorId}:l);
+        S.leads=S.leads.map(l=>l.id===lead.id?{...l,agendorId,agendorDealId:resp.dealId||null}:l);
         db.save({igp_l:S.leads});
-        toast('✓ Sincronizado com Agendor!','ok');
+        toast(resp.dealId?`✓ Enviado ao Agendor → funil ${map.funnelName}!`:'✓ Sincronizado com Agendor!','ok');
       } else {
         S.agendorStatus[lead.id]='error';
         toast('Erro no Agendor: '+(resp&&resp.status?`status ${resp.status}`:'sem resposta'),'err');
@@ -763,10 +786,10 @@
         ${pl.slice(0,5).map(l=>`
           <div style="background:#1a1a1a;border:1px solid #1e1e1e;border-radius:10px;padding:10px 12px;margin-bottom:5px;display:flex;align-items:center;justify-content:space-between">
             <div style="display:flex;align-items:center;gap:8px">
-              <div style="width:28px;height:28px;border-radius:50%;background:${isLastStatus(l.status)?'linear-gradient(135deg,#f472b6,#9333ea)':'linear-gradient(135deg,#833ab4,#fd1d1d)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0">${l.name.charAt(0).toUpperCase()}</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:${isContacted(l.status)?'linear-gradient(135deg,#f472b6,#9333ea)':'linear-gradient(135deg,#833ab4,#fd1d1d)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0">${l.name.charAt(0).toUpperCase()}</div>
               <div>
                 <div style="font-size:13px;font-weight:500;color:#fff">${esc(l.name)}</div>
-                ${isLastStatus(l.status)&&l.phone?`<div style="font-size:11px;color:#f472b6">📱 ${esc(l.phone)}</div>`:l.username?`<div style="font-size:11px;color:#444">@${esc(l.username)}</div>`:''}
+                ${isContacted(l.status)&&l.phone?`<div style="font-size:11px;color:#f472b6">📱 ${esc(l.phone)}</div>`:l.username?`<div style="font-size:11px;color:#444">@${esc(l.username)}</div>`:''}
               </div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
@@ -839,15 +862,15 @@
     const wa=ph?`https://wa.me/55${ph}`:'';
     const agSt=S.agendorStatus[l.id];
     return `
-      <div class="lead-card${isLastStatus(l.status)?' cv':''}" data-lid="${l.id}">
+      <div class="lead-card${isContacted(l.status)?' cv':''}" data-lid="${l.id}">
         <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:34px;height:34px;border-radius:50%;background:${isLastStatus(l.status)?'linear-gradient(135deg,#f472b6,#9333ea)':'linear-gradient(135deg,#833ab4,#fd1d1d)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;flex-shrink:0">${l.name.charAt(0).toUpperCase()}</div>
+          <div style="width:34px;height:34px;border-radius:50%;background:${isContacted(l.status)?'linear-gradient(135deg,#f472b6,#9333ea)':'linear-gradient(135deg,#833ab4,#fd1d1d)'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;flex-shrink:0">${l.name.charAt(0).toUpperCase()}</div>
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               <span style="font-weight:600;font-size:13px;color:#fff">${esc(l.name)}</span>
               ${l.profileUrl?`<a href="${esc(l.profileUrl)}" target="_blank" style="font-size:11px;color:#818cf8;text-decoration:none">@${esc(l.username||'')} ↗</a>`:l.username?`<span style="font-size:11px;color:#555">@${esc(l.username)}</span>`:''}
             </div>
-            ${isLastStatus(l.status)&&l.phone?`
+            ${isContacted(l.status)&&l.phone?`
               <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding:6px 10px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.2);border-radius:8px">
                 <span>📱</span><span style="font-weight:600;font-size:13px;color:#f472b6">${esc(l.phone)}</span>
                 ${wa?`<a href="${wa}" target="_blank" style="margin-left:auto;font-size:11px;color:#25d366;background:rgba(37,211,102,0.1);border:1px solid rgba(37,211,102,0.2);border-radius:6px;padding:2px 8px;text-decoration:none;font-weight:600">WhatsApp ↗</a>`:''}
@@ -900,7 +923,7 @@
   // TAB: CONTACTS
   // ═══════════════════════════════════════════════
   function renderContacts(m){
-    const contacts=S.leads.filter(l=>isLastStatus(l.status));
+    const contacts=S.leads.filter(l=>isContacted(l.status));
     return `
       <div style="font-weight:700;font-size:15px;color:#fff;margin-bottom:4px">Contatos Recebidos 📱</div>
       <div style="font-size:12px;color:#444;margin-bottom:14px">Pessoas que enviaram o número — sua conversão real.</div>
@@ -1125,7 +1148,7 @@
 
   function doSetStatus(lid,st){
     S.openStatusId=null;
-    if(isLastStatus(st)){
+    if(st===contactStatusKey()){
       const lead=S.leads.find(l=>l.id===lid);
       if(lead){ S.phoneLeadId=lid; S.phoneInput=lead.phone||''; renderBody(); }
     } else {
@@ -1139,9 +1162,9 @@
   function doConfirmPhone(){
     if(!S.phoneInput.trim()||!S.phoneLeadId) return;
     const now=new Date().toISOString();
-    S.leads=S.leads.map(l=>l.id===S.phoneLeadId?{...l,status:lastStatusKey(),phone:S.phoneInput.trim(),convertedAt:now}:l);
+    S.leads=S.leads.map(l=>l.id===S.phoneLeadId?{...l,status:contactStatusKey(),phone:S.phoneInput.trim(),convertedAt:now}:l);
     db.save({igp_l:S.leads});
-    syncLeadUpdateDirect(S.phoneLeadId,{status:lastStatusKey(),phone:S.phoneInput.trim()});
+    syncLeadUpdateDirect(S.phoneLeadId,{status:contactStatusKey(),phone:S.phoneInput.trim()});
     const lead=S.leads.find(l=>l.id===S.phoneLeadId);
     S.phoneLeadId=null; S.phoneInput='';
     renderBody();
@@ -1210,9 +1233,19 @@
     chrome.runtime.sendMessage({ type:'pull_org_pipeline', code }, res=>{
       if(!res||!res.ok||!res.pipeline){ console.warn('IGProspect: falha ao puxar etapas do funil', res&&res.error); return; }
       S.pipelineStages=mapPipelineStages(res.pipeline.stages);
-      db.save({igp_stages:S.pipelineStages});
+      S.agendorMap=res.pipeline.agendor_map||null;
+      db.save({igp_stages:S.pipelineStages, igp_agendor_map:S.agendorMap});
       if(S.open) renderBody();
     });
+  }
+  // Mesma lógica do painel (app.js agendorStageFor): decide o destino no
+  // Agendor conforme a ETAPA ATUAL do lead — mapeamento por etapa primeiro,
+  // formato antigo "achatado" só como último recurso.
+  function agendorStageFor(lead){
+    const map=S.agendorMap; if(!map) return null;
+    const byStage=map[lead.status||'novo']; if(byStage) return byStage;
+    if(map.stageId) return map;
+    return null;
   }
 
   // Traz os leads que já existem no sistema pra dentro da extensão — assim
@@ -1320,6 +1353,7 @@
     if(d.igp_tok) S.agendorToken=d.igp_tok;
     if(d.igp_org) S.org=d.igp_org;
     if(d.igp_stages) S.pipelineStages=d.igp_stages;
+    if(d.igp_agendor_map) S.agendorMap=d.igp_agendor_map;
     if(d.igp_sync_times) recentSyncTimes=d.igp_sync_times;
     if(d.igp_sync_paused) syncPaused=true;
     render();
