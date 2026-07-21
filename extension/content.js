@@ -169,7 +169,13 @@
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // Usa a etapa DE VERDADE do funil da equipe (currentStatuses/pull_org_pipeline)
+  // — o mapa fixo abaixo era usado sempre, então qualquer status fora dos 4
+  // originais (ex.: uma etapa nova como "Follow-up") caía no default "Novo
+  // Lead" e escondia o valor real do lead na tela da extensão.
   function badge(status) {
+    const st = currentStatuses().find(s=>s.key===status);
+    if (st) return `<span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;color:${st.color};background:${st.bg};white-space:nowrap">${esc(st.label)}</span>`;
     const m = {
       novo:     {c:'#818cf8',bg:'rgba(129,140,248,0.12)',l:'Novo Lead'},
       chamado:  {c:'#fbbf24',bg:'rgba(251,191,36,0.12)',l:'Chamado'},
@@ -639,6 +645,10 @@
         const agendorId = resp.data&&(resp.data.id||(resp.data.data&&resp.data.data.id));
         S.leads=S.leads.map(l=>l.id===lead.id?{...l,agendorId,agendorDealId:resp.dealId||null}:l);
         db.save({igp_l:S.leads});
+        // Sem isso, o painel nunca fica sabendo que ESTE envio (direto da
+        // extensão) já criou pessoa+negócio — o lead ficava com o botão
+        // manual "→ Agendor" pra sempre, mesmo já existindo lá de verdade.
+        if(agendorId) syncLeadUpdateDirect(lead.id,{agendorPersonId:agendorId, agendorDealId:resp.dealId||null, agendorFunnel:map.funnelName});
         toast(resp.dealId?`✓ Enviado ao Agendor → funil ${map.funnelName}!`:'✓ Sincronizado com Agendor!','ok');
       } else {
         S.agendorStatus[lead.id]='error';
@@ -1332,7 +1342,7 @@
   }
   function syncLeadUpdateDirect(extId, patch){
     if(!S.org||!S.org.code||!extId) return;
-    chrome.runtime.sendMessage({ type:'update_lead_direct', code:S.org.code, extId, status:patch.status, phone:patch.phone, name:patch.name }, res=>{
+    chrome.runtime.sendMessage({ type:'update_lead_direct', code:S.org.code, extId, status:patch.status, phone:patch.phone, name:patch.name, agendorPersonId:patch.agendorPersonId, agendorDealId:patch.agendorDealId, agendorFunnel:patch.agendorFunnel }, res=>{
       if(!res||!res.ok) console.warn('IGProspect: falha ao atualizar lead direto', res&&res.error);
     });
   }
