@@ -1225,7 +1225,15 @@
       // Reseta a trava de segurança também — é um contador por equipe conectada,
       // não faz sentido carregar o ritmo da equipe anterior pra essa nova.
       recentSyncTimes=[]; syncPaused=false;
-      db.save({igp_org:S.org, igp_l:S.leads, igp_leads_pulled_at:0, igp_sync_times:[], igp_sync_paused:false});
+      // CRÍTICO: também zera as etapas/mapeamento do Agendor cacheados — sem
+      // isso, se o pullPipeline() da equipe nova demorar ou falhar por
+      // qualquer motivo, a extensão continuava usando as etapas (e as KEYS)
+      // da equipe ANTERIOR pra decidir status/Agendor da equipe nova, o que
+      // é pior que usar o fallback genérico: as keys de uma equipe não têm
+      // NENHUMA relação com as da outra. Cai no DEFAULT_STATUSES até o pull
+      // da equipe nova confirmar as etapas de verdade dela.
+      S.pipelineStages=null; S.agendorMap=null;
+      db.save({igp_org:S.org, igp_l:S.leads, igp_leads_pulled_at:0, igp_sync_times:[], igp_sync_paused:false, igp_stages:null, igp_agendor_map:null});
       if(res.org.agendor_token){
         S.agendorToken=res.org.agendor_token;
         db.save({igp_tok:res.org.agendor_token});
