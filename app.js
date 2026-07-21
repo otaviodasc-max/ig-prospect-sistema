@@ -1853,18 +1853,23 @@ async function sendLeadToAgendor(id, silent=false){
     if(Object.keys(contact).length) personPayload.contact=contact;
     const person=await agendorRequest('/people','POST',personPayload);
     const personId=(person&&person.data&&person.data.id)||(person&&person.id);
-    let dealId=null;
+    let dealId=null, stageWarn=null;
     if(personId){
       const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:displayName, dealStage:map.stageId, funnel:map.funnelId, description:`Enviado pelo IGProspect (funil ${map.funnelName}).` });
       dealId=(deal&&deal.data&&deal.data.id)||(deal&&deal.id)||null;
       // O Agendor às vezes ignora dealStage na criação e joga o negócio na
       // primeira etapa do funil — um PUT explícito logo depois garante que
-      // ele nasça na etapa certa, mesmo se a API não respeitar o POST.
-      if(dealId){ try{ await agendorRequest(`/deals/${dealId}`,'PUT',{ dealStage:map.stageId, funnel:map.funnelId }); }catch(e){} }
+      // ele nasça na etapa certa, mesmo se a API não respeitar o POST. Se
+      // esse PUT falhar, não derruba o envio (pessoa+negócio já existem),
+      // mas o erro precisa aparecer — antes ficava engolido sem log nenhum.
+      if(dealId){
+        try{ await agendorRequest(`/deals/${dealId}`,'PUT',{ dealStage:map.stageId, funnel:map.funnelId }); }
+        catch(e){ console.warn('Agendor: PUT de reforço da etapa falhou —',e.message); stageWarn=`Negócio criado, mas não travou na etapa "${map.stageName}": ${e.message}`; }
+      }
     }
-    await sb.from('leads').update({ agendor_person_id:personId?String(personId):null, agendor_deal_id:dealId?String(dealId):null, agendor_funnel:map.funnelName, agendor_status:'ok', agendor_error:null }).eq('id',id);
-    Object.assign(lead,{ agendorPersonId:personId, agendorDealId:dealId, agendorFunnel:map.funnelName, agendorStatus:'ok', agendorError:null });
-    toast(`Enviado ao Agendor → funil ${map.funnelName} ✓`,'success');
+    await sb.from('leads').update({ agendor_person_id:personId?String(personId):null, agendor_deal_id:dealId?String(dealId):null, agendor_funnel:map.funnelName, agendor_status:stageWarn?'failed':'ok', agendor_error:stageWarn }).eq('id',id);
+    Object.assign(lead,{ agendorPersonId:personId, agendorDealId:dealId, agendorFunnel:map.funnelName, agendorStatus:stageWarn?'failed':'ok', agendorError:stageWarn });
+    toast(stageWarn?`Enviado ao Agendor, mas com aviso: ${stageWarn}`:`Enviado ao Agendor → funil ${map.funnelName} ✓`, stageWarn?'warn':'success');
   }catch(err){
     lead.agendorStatus='failed'; lead.agendorError=err.message;
     try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:err.message }).eq('id',id); }catch(e){}
@@ -1884,9 +1889,14 @@ async function syncAgendorDealStage(lead){
     await sb.from('leads').update({ agendor_funnel:map.funnelName, agendor_status:'ok', agendor_error:null }).eq('id',lead.id);
     Object.assign(lead,{ agendorFunnel:map.funnelName, agendorStatus:'ok', agendorError:null });
   }catch(err){
+    console.warn('Agendor: PUT de mudança de etapa falhou —',err.message);
     lead.agendorStatus='failed'; lead.agendorError=err.message;
     try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:err.message }).eq('id',lead.id); }catch(e){}
   }
+  // Sem isso, o ⚠ de falha (ou o ☁ de sucesso) só aparecia na próxima vez que
+  // ALGUMA OUTRA coisa forçasse um re-render — essa função nunca desenhava
+  // de novo sozinha, então a falha ficava invisível mesmo já gravada no banco.
+  if(S.route==='leads'||S.route==='crm') renderShell();
 }
 
 // Ponto único de disparo do envio automático — chamado sempre que a etapa de
