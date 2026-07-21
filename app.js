@@ -455,24 +455,71 @@ const metrics = leads => { const c={novo:0,chamado:0,respondeu:0,contato:0}; for
 const topNiches = (leads,n=8) => { const m={}; for(const l of leads){ const k=(l.niche||'Sem nicho').trim()||'Sem nicho'; m[k]=(m[k]||0)+1; } return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,n); };
 const timeline14 = leads => { const t=new Date(); t.setHours(0,0,0,0); return Array.from({length:14},(_,i)=>{ const day=new Date(t); day.setDate(day.getDate()-(13-i)); const nx=new Date(day); nx.setDate(nx.getDate()+1); return { date:day, count:leads.filter(l=>{ if(!l.addedAt)return false; const d=new Date(l.addedAt); return d>=day&&d<nx; }).length }; }); };
 const weeklyTrend = leads => { const now=new Date(); now.setHours(0,0,0,0); return Array.from({length:8},(_,i)=>{ const ri=7-i; const s=new Date(now); s.setDate(s.getDate()-ri*7-6); const e=new Date(now); e.setDate(e.getDate()-ri*7+1); return { label:`S${i+1}`, count:leads.filter(l=>l.addedAt&&new Date(l.addedAt)>=s&&new Date(l.addedAt)<e).length }; }); };
-function drawTimeline(data){ const cv=$('tl-chart'); if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=155; cv.width=W;cv.height=H; const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
+// Cada draw* devolve a geometria desenhada (pontos/barras/fatias) pra que os
+// bind*Hover logo abaixo saibam onde está o quê, sem redesenhar nada — só
+// leem a posição do mouse e mostram um tooltip flutuante (.chart-tip).
+function drawTimeline(data){ const cv=$('tl-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=155; cv.width=W;cv.height=H; const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis'),NODE=cssVar('--chart-node');
   for(let i=0;i<=4;i++){ const y=P.t+(cH/4)*i; ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke(); ctx.fillStyle=AXIS;ctx.font='9.5px Inter';ctx.textAlign='right';ctx.fillText(Math.round(maxV-(maxV/4)*i),P.l-5,y+3); }
   const pts=data.map((d,i)=>({x:P.l+i*step,y:P.t+cH-(d.count/maxV)*cH})); const g=ctx.createLinearGradient(0,P.t,0,P.t+cH); g.addColorStop(0,'rgba(99,102,241,.3)');g.addColorStop(1,'rgba(99,102,241,0)');
   ctx.beginPath();ctx.moveTo(pts[0].x,P.t+cH);ctx.lineTo(pts[0].x,pts[0].y); for(let i=1;i<pts.length;i++){const c=(pts[i-1].x+pts[i].x)/2;ctx.bezierCurveTo(c,pts[i-1].y,c,pts[i].y,pts[i].x,pts[i].y);} ctx.lineTo(pts[pts.length-1].x,P.t+cH);ctx.closePath();ctx.fillStyle=g;ctx.fill();
   ctx.beginPath();ctx.strokeStyle='#6366F1';ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.moveTo(pts[0].x,pts[0].y); for(let i=1;i<pts.length;i++){const c=(pts[i-1].x+pts[i].x)/2;ctx.bezierCurveTo(c,pts[i-1].y,c,pts[i].y,pts[i].x,pts[i].y);} ctx.stroke();
   pts.forEach((p,i)=>{ if(data[i].count>0){ctx.beginPath();ctx.arc(p.x,p.y,3.5,0,Math.PI*2);ctx.fillStyle='#6366F1';ctx.fill();ctx.strokeStyle=NODE;ctx.lineWidth=2;ctx.stroke();} });
-  ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ if(i%2===0)ctx.fillText(d.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),pts[i].x,H-7); }); }
-function drawWeekly(data){ const cv=$('wk-chart'); if(!cv)return; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=125; cv.width=W;cv.height=H; const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
+  ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ if(i%2===0)ctx.fillText(d.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),pts[i].x,H-7); });
+  return { pts, data };
+}
+function drawWeekly(data){ const cv=$('wk-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=125; cv.width=W;cv.height=H; const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis');
   for(let i=0;i<=3;i++){const y=P.t+(cH/3)*i;ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();}
   data.forEach((d,i)=>{ const x=P.l+i*boff+(boff-bw)/2,bh=(d.count/maxV)*cH,y=P.t+cH-bh; if(d.count===0)return; const g=ctx.createLinearGradient(0,y,0,y+bh);g.addColorStop(0,'rgba(99,102,241,.88)');g.addColorStop(1,'rgba(99,102,241,.22)'); ctx.beginPath(); if(ctx.roundRect)ctx.roundRect(x,y,bw,bh,3);else ctx.rect(x,y,bw,bh); ctx.fillStyle=g;ctx.fill(); ctx.fillStyle=AXIS;ctx.font='8.5px Inter';ctx.textAlign='center';ctx.fillText(d.count,x+bw/2,y-4); });
-  ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ ctx.fillText(d.label,P.l+i*boff+boff/2,H-7); }); }
-function drawDonut(c,total){ const cv=$('donut-chart'); if(!cv)return; const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*2;cv.height=H*2;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(2,2);ctx.clearRect(0,0,W,H);
-  if(total===0){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle=cssVar('--chart-grid');ctx.lineWidth=r-ir;ctx.stroke();return;}
-  const sc=SC(); const colors=[sc.novo,sc.chamado,sc.respondeu,sc.contato],vals=[c.novo,c.chamado,c.respondeu,c.contato]; let ang=-Math.PI/2;
-  vals.forEach((v,i)=>{ if(!v)return; const sw=(v/total)*Math.PI*2; ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,ang,ang+sw);ctx.closePath();ctx.fillStyle=colors[i];ctx.fill();ang+=sw; });
-  ctx.beginPath();ctx.arc(cx,cy,ir,0,Math.PI*2);ctx.fillStyle=cssVar('--chart-node');ctx.fill(); }
+  ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ ctx.fillText(d.label,P.l+i*boff+boff/2,H-7); });
+  return { data, P, boff };
+}
+function drawDonut(c,total){ const cv=$('donut-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*2;cv.height=H*2;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(2,2);ctx.clearRect(0,0,W,H);
+  if(total===0){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle=cssVar('--chart-grid');ctx.lineWidth=r-ir;ctx.stroke();return {cx,cy,r,ir,total:0,segs:[]};}
+  const sm=SM(), sc=SC(); const keys=['novo','chamado','respondeu','contato'];
+  const colors=keys.map(k=>sc[k]), vals=keys.map(k=>c[k]||0); let ang=-Math.PI/2; const segs=[];
+  vals.forEach((v,i)=>{ if(!v)return; const sw=(v/total)*Math.PI*2; ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,ang,ang+sw);ctx.closePath();ctx.fillStyle=colors[i];ctx.fill();
+    segs.push({ label:(sm[keys[i]]&&sm[keys[i]].label)||keys[i], color:colors[i], val:v, start:ang+Math.PI/2, end:ang+sw+Math.PI/2 }); ang+=sw; });
+  ctx.beginPath();ctx.arc(cx,cy,ir,0,Math.PI*2);ctx.fillStyle=cssVar('--chart-node');ctx.fill();
+  return { cx, cy, r, ir, total, segs };
+}
+// ---- Tooltip flutuante compartilhado pelos 3 gráficos do Dashboard ----
+function chartTip(wrap){ let tip=wrap.querySelector('.chart-tip'); if(!tip){ tip=document.createElement('div'); tip.className='chart-tip'; wrap.appendChild(tip); } return tip; }
+function showChartTip(wrap,x,y,html){ const tip=chartTip(wrap); tip.innerHTML=html; tip.style.left=x+'px'; tip.style.top=y+'px'; tip.style.opacity='1'; }
+function hideChartTip(wrap){ const tip=wrap.querySelector('.chart-tip'); if(tip) tip.style.opacity='0'; }
+function bindTimelineHover(cv,geo){
+  if(!cv) return; if(!geo||!geo.pts.length){ cv.onmousemove=cv.onmouseleave=null; return; }
+  const wrap=cv.parentElement;
+  cv.onmousemove=e=>{ let idx=0,best=Infinity; geo.pts.forEach((p,i)=>{ const d=Math.abs(p.x-e.offsetX); if(d<best){best=d;idx=i;} }); const p=geo.pts[idx], d=geo.data[idx];
+    showChartTip(wrap,p.x,p.y,`<b>${d.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</b><br>${d.count} lead(s)`); };
+  cv.onmouseleave=()=>hideChartTip(wrap);
+}
+function bindWeeklyHover(cv,geo){
+  if(!cv) return; if(!geo||!geo.data.length){ cv.onmousemove=cv.onmouseleave=null; return; }
+  const wrap=cv.parentElement;
+  cv.onmousemove=e=>{ let idx=Math.floor((e.offsetX-geo.P.l)/geo.boff); idx=Math.max(0,Math.min(geo.data.length-1,idx)); const d=geo.data[idx]; const bx=geo.P.l+idx*geo.boff+geo.boff/2;
+    showChartTip(wrap,bx,geo.P.t,`<b>${esc(d.label)}</b><br>${d.count} lead(s)`); };
+  cv.onmouseleave=()=>hideChartTip(wrap);
+}
+function bindDonutHover(cv,geo){
+  if(!cv) return; if(!geo||!geo.total){ cv.onmousemove=cv.onmouseleave=null; return; }
+  const wrap=cv.parentElement;
+  cv.onmousemove=e=>{ const dx=e.offsetX-geo.cx, dy=e.offsetY-geo.cy, dist=Math.hypot(dx,dy);
+    if(dist<geo.ir||dist>geo.r){ hideChartTip(wrap); return; }
+    let a=Math.atan2(dy,dx)+Math.PI/2; if(a<0) a+=Math.PI*2;
+    const seg=geo.segs.find(s=>a>=s.start&&a<s.end); if(!seg){ hideChartTip(wrap); return; }
+    const pct=Math.round(seg.val/geo.total*100);
+    showChartTip(wrap,e.offsetX,e.offsetY,`<span style="color:${seg.color}">●</span> <b>${esc(seg.label)}</b><br>${seg.val} lead(s) · ${pct}%`); };
+  cv.onmouseleave=()=>hideChartTip(wrap);
+}
+// Sobe de 0 até o valor final (ease-out) — dispara toda vez que entra/atualiza
+// o Dashboard, pros números dos KPIs e do "a pagar" ganharem vida.
+function animateCount(el,to,fmt){
+  if(!el) return; fmt=fmt||(v=>fmtNum(Math.round(v)));
+  const dur=900, t0=performance.now();
+  (function tick(now){ const p=Math.min(1,(now-t0)/dur); const eased=1-Math.pow(1-p,3); el.textContent=fmt(to*eased); if(p<1) requestAnimationFrame(tick); else el.textContent=fmt(to); })(t0);
+}
 
 /* =====================================================================
    SHELL
@@ -548,7 +595,7 @@ function renderDashboard(){
   const KICO={ novo:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', chamado:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', respondeu:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', contato:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' };
   const sts=STS(), sm=SM(), sc=SC();
   const kpis=[ {k:'novo',cls:'kk-n',lbl:'Total de Leads',val:total,p:null,sub:`${S.leads.length} no total`}, {k:'chamado',cls:'kk-c',lbl:'Chamados',val:c.chamado,p:pct(c.chamado),sub:'do total'}, {k:'respondeu',cls:'kk-r',lbl:'Responderam',val:c.respondeu,p:pct(c.respondeu),sub:'dos chamados'}, {k:'contato',cls:'kk-o',lbl:'Convertidos',val:c.contato,p:pct(c.contato),sub:'taxa de conv.'} ];
-  const kpiHtml=kpis.map(x=>`<div class="kpi-card ${x.cls}"><div class="kpi-top"><div class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${KICO[x.k]}</svg></div></div><div class="kpi-lbl">${x.lbl}</div><div class="kpi-val">${x.val}</div><div class="kpi-sub">${x.p!=null?`<span class="kpi-pct">${x.p}%</span>`:''}${x.sub}</div></div>`).join('');
+  const kpiHtml=kpis.map(x=>`<div class="kpi-card ${x.cls}"><div class="kpi-top"><div class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${KICO[x.k]}</svg></div></div><div class="kpi-lbl">${x.lbl}</div><div class="kpi-val" data-cnt="${x.val}">0</div><div class="kpi-sub">${x.p!=null?`<span class="kpi-pct">${x.p}%</span>`:''}${x.sub}</div></div>`).join('');
   const maxC=Math.max(...sts.map(s=>c[s]||0),1);
   const funnelHtml=sts.map(s=>{ const n=c[s]||0,w=Math.round(n/maxC*100); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${sc[s]}"></span>${sm[s].label}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${sc[s]};opacity:.82"><span>${n>0?pct(n)+'%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
   const niches=topNiches(leads),maxN=(niches[0]&&niches[0][1])||1;
@@ -573,7 +620,7 @@ function renderDashboard(){
     payCard=`<div class="card" style="padding:20px;border-left:3px solid #10B981;margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">
         <div><div style="font-weight:800;font-size:1rem">💵 A pagar nesta semana</div><div style="font-size:.72rem;color:var(--t3)">semana ${wkLbl} · ${fmtCurrency(wp.dayRate)}/dia por ${wp.target} leads (${fmtCurrency(wp.perLead)}/lead)${wp.recipientId?` · só leads de <b style="color:var(--t2)">${esc(payRecipientName())}</b>`:''}</div></div>
-        <div style="text-align:right"><div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:2rem;line-height:1;color:#10B981">${fmtCurrency(wp.total)}</div><div style="font-size:.7rem;color:var(--t3)">total a pagar</div></div>
+        <div style="text-align:right"><div id="dash-pay-total" data-cnt="${wp.total}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:2rem;line-height:1;background:linear-gradient(135deg,#10B981,#34D399);-webkit-background-clip:text;background-clip:text;color:transparent">${fmtCurrency(0)}</div><div style="font-size:.7rem;color:var(--t3)">total a pagar</div></div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
         <div style="background:var(--surf2);border-radius:9px;padding:12px 14px">
@@ -599,7 +646,13 @@ function renderDashboard(){
   </div></div>`;
   $('see-all')&&($('see-all').onclick=()=>{ S.route='leads'; renderShell(); });
   $('see-calls')&&($('see-calls').onclick=()=>{ S.route='calls'; renderShell(); });
-  requestAnimationFrame(()=>{ drawTimeline(timeline14(leads)); drawWeekly(weeklyTrend(leads)); drawDonut(c,total); });
+  requestAnimationFrame(()=>{
+    bindTimelineHover($('tl-chart'), drawTimeline(timeline14(leads)));
+    bindWeeklyHover($('wk-chart'), drawWeekly(weeklyTrend(leads)));
+    bindDonutHover($('donut-chart'), drawDonut(c,total));
+  });
+  document.querySelectorAll('.kpi-val[data-cnt]').forEach(el=>animateCount(el,Number(el.dataset.cnt)));
+  $('dash-pay-total')&&animateCount($('dash-pay-total'),Number($('dash-pay-total').dataset.cnt),fmtCurrency);
 }
 
 /* =====================================================================
