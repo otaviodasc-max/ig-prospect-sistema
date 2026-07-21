@@ -304,6 +304,14 @@
   shadow.appendChild(styleEl);
   const wrap = document.createElement('div');
   shadow.appendChild(wrap);
+  // O Instagram tem atalhos de teclado globais (letras soltas como "b" ou
+  // "n" abrem diálogos/painéis dele) escutados no document — sem isso,
+  // digitar nos campos da extensão (busca, notas, telefone etc.) também
+  // aciona esses atalhos, porque o Instagram enxerga só o HOST da Shadow
+  // DOM no evento, nunca o <input> de verdade lá dentro, e não reconhece
+  // que é um campo de texto. Barra a propagação aqui, no topo da árvore da
+  // extensão, antes que o evento saia da Shadow DOM.
+  ['keydown','keyup','keypress'].forEach(evt=>wrap.addEventListener(evt, e=>e.stopPropagation()));
 
   // Toast element
   const toastEl = document.createElement('div');
