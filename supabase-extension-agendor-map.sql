@@ -5,6 +5,8 @@
 -- Execute no Supabase SQL Editor, APÓS supabase-extension-pull-data.sql.
 -- =====================================================================
 
+drop function if exists public.org_pipeline_by_join_code(text);
+
 create or replace function public.org_pipeline_by_join_code(p_code text)
 returns table(id uuid, name text, stages jsonb, agendor_map jsonb)
 language sql stable security definer set search_path = public as $$
