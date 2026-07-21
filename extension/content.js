@@ -107,26 +107,31 @@
   function statusIdx(key){ const i=currentStatuses().findIndex(s=>s.key===key); return i<0?0:i; }
   function firstStatusKey(){ return currentStatuses()[0].key; }
   function lastStatusKey(){ const a=currentStatuses(); return a[a.length-1].key; }
-  // Etapa que representa "Novo Lead" de verdade — mesma ideia de
-  // contactStatusKey(): se a equipe tiver a etapa de key 'novo' em
-  // qualquer posição da lista (não necessariamente a primeira — a ordem
-  // é editável em Configurações e pode ficar bagunçada por engano), um
-  // lead recém-capturado tem que entrar nela, não em "seja lá o que
-  // estiver na posição 0" daquele momento.
-  function newLeadStatusKey(){ const a=currentStatuses(); const n=a.find(s=>s.key==='novo'); return n?n.key:firstStatusKey(); }
+  // Cada equipe cria a própria key ao adicionar/editar etapas (ex.: "Enviou
+  // Contato" pode ser 'contato' numa equipe e 'enviou_contato' noutra) — a
+  // KEY nunca é confiável entre equipes. O LABEL visível ("Novo Lead",
+  // "Enviou Contato") é o que fica estável, então a âncora casa por key
+  // conhecida OU por label normalizado (sem acento/maiúscula), com posição
+  // (0/última) só como último recurso pra funis com vocabulário 100% diferente
+  // (ex.: "Empresários": a_contatar/em_conversa/reuniao/negociando).
+  function normLabel(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+  function findStageIdx(keys, labels){ const a=currentStatuses(); return a.findIndex(s=>keys.includes(s.key)||labels.includes(normLabel(s.label))); }
+  const NEW_LEAD_KEYS=['novo'], NEW_LEAD_LABELS=['novo lead','novo'];
+  const CONTACT_KEYS=['contato','enviou_contato'], CONTACT_LABELS=['enviou contato','contato enviado','contato'];
+  // Etapa que representa "Novo Lead" de verdade — um lead recém-capturado
+  // tem que entrar nela, não em "seja lá o que estiver na posição 0".
+  function newLeadStatusKey(){ const i=findStageIdx(NEW_LEAD_KEYS,NEW_LEAD_LABELS); return i>=0?currentStatuses()[i].key:firstStatusKey(); }
   // "Ainda não chamado" — posição <= a etapa 'novo', espelhando isContacted().
-  function isUncalled(status){ const a=currentStatuses(); const ni=a.findIndex(s=>s.key==='novo'); const anchor=ni>=0?ni:0; return statusIdx(status)<=anchor; }
+  function isUncalled(status){ const i=findStageIdx(NEW_LEAD_KEYS,NEW_LEAD_LABELS); return statusIdx(status)<=(i>=0?i:0); }
   // Etapa que representa "Enviou Contato" de verdade — funis customizados
   // podem ter colunas DEPOIS dela (ex.: "Follow-up"), então "a última etapa"
-  // deixa de ser sinônimo de "enviou contato" assim que isso acontece. Usa a
-  // etapa de key 'contato' (vocabulário fixo da extensão) se ela existir;
-  // só cai pro fallback de "última etapa" em funis sem esse vocabulário.
-  function contactStatusKey(){ const a=currentStatuses(); const c=a.find(s=>s.key==='contato'); return c?c.key:lastStatusKey(); }
+  // deixa de ser sinônimo de "enviou contato" assim que isso acontece.
+  function contactStatusKey(){ const i=findStageIdx(CONTACT_KEYS,CONTACT_LABELS); return i>=0?currentStatuses()[i].key:lastStatusKey(); }
   // "Já contatado" pro resto da UI (contador de convertidos, aba Contatos,
-  // destaque rosa no card) — precisa ser POSIÇÃO >= a etapa 'contato', não só
-  // "é a última etapa", senão um lead em "Enviou Contato" some das métricas
-  // assim que o funil ganha uma coluna depois dela (ex.: "Follow-up").
-  function isContacted(status){ const a=currentStatuses(); const ci=a.findIndex(s=>s.key==='contato'); const anchor=ci>=0?ci:a.length-1; return statusIdx(status)>=anchor; }
+  // destaque rosa no card) — precisa ser POSIÇÃO >= a etapa de contato, não
+  // só "é a última etapa", senão um lead em "Enviou Contato" some das
+  // métricas assim que o funil ganha uma coluna depois dela (ex.: "Follow-up").
+  function isContacted(status){ const i=findStageIdx(CONTACT_KEYS,CONTACT_LABELS); return statusIdx(status)>=(i>=0?i:currentStatuses().length-1); }
   const RESERVED = new Set(['explore','reel','reels','p','tv','stories','accounts','direct','notifications','ar','challenges','audio','shop','about','privacy','help','']);
   // Títulos genéricos de seção do Instagram que às vezes acabam parando onde
   // deveria estar o nome da pessoa (fallback de heading pego errado no Direct).

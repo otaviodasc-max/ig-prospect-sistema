@@ -45,9 +45,24 @@ function leadPipeline(l){ return pipelineById(l&&l.pipeline_id); }
 function stLabel(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].label)||st||'—'; }
 function stShort(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].short)||stLabel(l); }
 function stColor(l){ const st=(l&&l.status)||'novo'; return SC(leadPipeline(l))[st]||'#64748B'; }
-// Um lead "converteu" quando chega na ÚLTIMA etapa do funil ao qual pertence
-// (era hardcoded para status==='contato'; agora vale para qualquer funil customizado).
-function isLastStage(status, pipeline){ const stages=STS(pipeline); return stages.length>0 && stages[stages.length-1]===status; }
+// Cada equipe cria a própria key ao editar etapas (ex.: "Enviou Contato" pode
+// ser 'contato' numa equipe e 'enviou_contato' noutra) — a key nunca é
+// confiável entre equipes, mas o LABEL visível é estável. Mesma lógica usada
+// na extensão (content.js) pra decidir a etapa de "Enviou Contato".
+function normLabel(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+const CONTACT_STAGE_KEYS=['contato','enviou_contato'], CONTACT_STAGE_LABELS=['enviou contato','contato enviado','contato'];
+// Um lead "converteu" quando chega na etapa de "Enviou Contato" — casada por
+// key OU label (nunca só por posição: reordenar etapas, ex. adicionar
+// "Follow-up" depois de "Enviou Contato", não pode mudar o que conta como
+// conversão). Pipelines 100% customizados sem essa etapa (ex.: "Empresários")
+// caem no fallback de "última etapa do funil".
+function isLastStage(status, pipeline){
+  const stages=STS(pipeline); if(!stages.length) return false;
+  const full=stagesOf(pipeline);
+  const ci=full.findIndex(s=>CONTACT_STAGE_KEYS.includes(s.key)||CONTACT_STAGE_LABELS.includes(normLabel(s.label)));
+  const anchorKey = ci>=0 ? full[ci].key : stages[stages.length-1];
+  return status===anchorKey;
+}
 
 /* ---------- Desfechos de ligação (org_call_outcomes) — customizáveis pelo dono ---------- */
 const DEFAULT_CALL_OUTCOMES = [
