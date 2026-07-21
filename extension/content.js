@@ -105,9 +105,17 @@
   // tiver puxado nada (equipe não conectada, ou pull falhou).
   function currentStatuses(){ return (S.pipelineStages&&S.pipelineStages.length)?S.pipelineStages:DEFAULT_STATUSES; }
   function statusIdx(key){ const i=currentStatuses().findIndex(s=>s.key===key); return i<0?0:i; }
-  function isFirstStatus(key){ return statusIdx(key)===0; }
   function firstStatusKey(){ return currentStatuses()[0].key; }
   function lastStatusKey(){ const a=currentStatuses(); return a[a.length-1].key; }
+  // Etapa que representa "Novo Lead" de verdade — mesma ideia de
+  // contactStatusKey(): se a equipe tiver a etapa de key 'novo' em
+  // qualquer posição da lista (não necessariamente a primeira — a ordem
+  // é editável em Configurações e pode ficar bagunçada por engano), um
+  // lead recém-capturado tem que entrar nela, não em "seja lá o que
+  // estiver na posição 0" daquele momento.
+  function newLeadStatusKey(){ const a=currentStatuses(); const n=a.find(s=>s.key==='novo'); return n?n.key:firstStatusKey(); }
+  // "Ainda não chamado" — posição <= a etapa 'novo', espelhando isContacted().
+  function isUncalled(status){ const a=currentStatuses(); const ni=a.findIndex(s=>s.key==='novo'); const anchor=ni>=0?ni:0; return statusIdx(status)<=anchor; }
   // Etapa que representa "Enviou Contato" de verdade — funis customizados
   // podem ter colunas DEPOIS dela (ex.: "Follow-up"), então "a última etapa"
   // deixa de ser sinônimo de "enviou contato" assim que isso acontece. Usa a
@@ -275,14 +283,14 @@
     const respFrom = Math.min(2, currentStatuses().length-1);
     const today = new Date().toDateString();
     const tl = S.leads.filter(l => new Date(l.addedAt).toDateString()===today);
-    const ct = tl.filter(l=>!isFirstStatus(l.status)).length;
-    const tc = S.leads.filter(l=>!isFirstStatus(l.status)).length;
+    const ct = tl.filter(l=>!isUncalled(l.status)).length;
+    const tc = S.leads.filter(l=>!isUncalled(l.status)).length;
     const re = S.leads.filter(l=>statusIdx(l.status)>=respFrom).length;
     const cv = S.leads.filter(l=>isContacted(l.status)).length;
 
     // Period-filtered metrics
     const pl = leadsInPeriod(S.leads);
-    const pCalled = pl.filter(l=>!isFirstStatus(l.status)).length;
+    const pCalled = pl.filter(l=>!isUncalled(l.status)).length;
     const pResp   = pl.filter(l=>statusIdx(l.status)>=respFrom).length;
     const pConv   = pl.filter(l=>isContacted(l.status)).length;
 
@@ -570,7 +578,7 @@
       wasNew=true;
       lead={ id:Date.now().toString(), name:d.name||d.username||'Lead', username:d.username||'',
         profileUrl:d.username?`https://instagram.com/${d.username}`:'', niche:'', notes:'', mutualFriends:'',
-        status:firstStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false };
+        status:newLeadStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false };
       S.leads.unshift(lead);
     }
     if(!lead){ toast('Abra o perfil do lead primeiro','info'); return; }
@@ -1122,7 +1130,7 @@
     const lead={
       id:Date.now().toString(), ...S.form,
       profileUrl: p&&p.username===S.form.username ? p.url : '',
-      status:firstStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false
+      status:newLeadStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false
     };
     S.leads.unshift(lead);
     S.form={name:'',username:'',niche:'',notes:'',mutualFriends:''};
@@ -1146,7 +1154,7 @@
       name:realName, username:p.username,
       profileUrl:p.url,
       niche:'', notes:'', mutualFriends:'',
-      status:firstStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false
+      status:newLeadStatusKey(), addedAt:new Date().toISOString(), orgId:S.org&&S.org.id, synced:false
     };
     S.leads.unshift(lead);
     db.save({igp_l:S.leads});
@@ -1273,7 +1281,7 @@
         const loc=localById.get(l.ext_id)||{};
         return { ...loc,
           id:l.ext_id, name:l.name||l.username||'Lead', username:l.username||'',
-          phone:l.phone||'', niche:l.niche||'', status:l.status||firstStatusKey(),
+          phone:l.phone||'', niche:l.niche||'', status:l.status||newLeadStatusKey(),
           addedAt:l.added_at||loc.addedAt||new Date().toISOString(), synced:true,
         };
       });
