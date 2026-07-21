@@ -789,8 +789,7 @@ function leadForm(id){
     const converted=isLastStage(data.status,pipeline);
     closeModal(); await loadLeads(); if(converted||data.tipo==='empresario'){ await loadDeals(); if(savedId) await ensureDealForLead(savedId); } renderShell();
     if(converted && prevStatus!==data.status) notifyLeadContato(S.leads.find(x=>x.id===savedId)||data);
-    if(converted && agendorOn() && agendorAutoOn() && savedId){ const lead=S.leads.find(x=>x.id===savedId); if(lead && !lead.agendorPersonId) sendLeadToAgendor(savedId,true); }
-    if(prevStatus && prevStatus!==data.status && savedId && agendorOn()){ const lead=S.leads.find(x=>x.id===savedId); if(lead && lead.agendorPersonId) syncAgendorDealStage(lead); }
+    if(savedId && prevStatus!==data.status){ const lead=S.leads.find(x=>x.id===savedId); if(lead) autoSyncAgendor(lead); }
   };
 }
 function delLead(id){ const l=S.leads.find(x=>x.id===id);
@@ -1054,7 +1053,7 @@ function renderCRM(){
   board2.addEventListener('dragend',e=>{ const c=e.target.closest('.crm-card'); if(c)c.classList.remove('dragging'); document.querySelectorAll('.crm-col.dragover').forEach(x=>x.classList.remove('dragover')); });
   board2.addEventListener('dragover',e=>{ const col=e.target.closest('.crm-col'); if(col){ e.preventDefault(); col.classList.add('dragover'); } });
   board2.addEventListener('dragleave',e=>{ const col=e.target.closest('.crm-col'); if(col&&!col.contains(e.relatedTarget))col.classList.remove('dragover'); });
-  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { const lp=leadPipeline(l); toast(`Movido para "${(SM(lp)[ns]||{}).label||ns}"`,'success'); if(isLastStage(ns,lp)||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(isLastStage(ns,lp)){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } if(agendorOn()&&agendorAutoOn()&&!l.agendorPersonId) sendLeadToAgendor(id,true); } if(agendorOn()&&l.agendorPersonId) syncAgendorDealStage(l); } } renderCRM(); });
+  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { const lp=leadPipeline(l); toast(`Movido para "${(SM(lp)[ns]||{}).label||ns}"`,'success'); if(isLastStage(ns,lp)||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(isLastStage(ns,lp)){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } } await autoSyncAgendor(l); } } renderCRM(); });
   board2.addEventListener('click',e=>{ const c=e.target.closest('.crm-card[data-id]'); if(!c)return; if(S.sel.mode){ selToggle(c.dataset.id); renderCRM(); return; } leadForm(c.dataset.id); });
   bindSelBar(leads.map(l=>l.id), renderCRM, bulkDeleteLeads);
 }
@@ -1794,10 +1793,13 @@ function agendorStageFor(lead){
   const p=leadPipeline(lead);
   const map=(p&&p.agendor_map)||null;
   if(!map) return null;
+  const byStage=map[lead.status||'novo'];
+  if(byStage) return byStage;
   // Mapeamento antigo (formato "achatado", de antes de existir por etapa) —
-  // continua valendo como destino único até o dono salvar de novo.
+  // só usado como último recurso se a etapa atual não tiver destino próprio,
+  // pra não sobrepor silenciosamente um mapeamento por etapa já configurado.
   if(map.stageId) return map;
-  return map[lead.status||'novo']||null;
+  return null;
 }
 
 async function loadAgendorFunnels(){
@@ -1852,7 +1854,14 @@ async function sendLeadToAgendor(id, silent=false){
     const person=await agendorRequest('/people','POST',personPayload);
     const personId=(person&&person.data&&person.data.id)||(person&&person.id);
     let dealId=null;
-    if(personId){ const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:displayName, dealStage:map.stageId, funnel:map.funnelId, description:`Enviado pelo IGProspect (funil ${map.funnelName}).` }); dealId=(deal&&deal.data&&deal.data.id)||(deal&&deal.id)||null; }
+    if(personId){
+      const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:displayName, dealStage:map.stageId, funnel:map.funnelId, description:`Enviado pelo IGProspect (funil ${map.funnelName}).` });
+      dealId=(deal&&deal.data&&deal.data.id)||(deal&&deal.id)||null;
+      // O Agendor às vezes ignora dealStage na criação e joga o negócio na
+      // primeira etapa do funil — um PUT explícito logo depois garante que
+      // ele nasça na etapa certa, mesmo se a API não respeitar o POST.
+      if(dealId){ try{ await agendorRequest(`/deals/${dealId}`,'PUT',{ dealStage:map.stageId, funnel:map.funnelId }); }catch(e){} }
+    }
     await sb.from('leads').update({ agendor_person_id:personId?String(personId):null, agendor_deal_id:dealId?String(dealId):null, agendor_funnel:map.funnelName, agendor_status:'ok', agendor_error:null }).eq('id',id);
     Object.assign(lead,{ agendorPersonId:personId, agendorDealId:dealId, agendorFunnel:map.funnelName, agendorStatus:'ok', agendorError:null });
     toast(`Enviado ao Agendor → funil ${map.funnelName} ✓`,'success');
@@ -1878,6 +1887,18 @@ async function syncAgendorDealStage(lead){
     lead.agendorStatus='failed'; lead.agendorError=err.message;
     try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:err.message }).eq('id',lead.id); }catch(e){}
   }
+}
+
+// Ponto único de disparo do envio automático — chamado sempre que a etapa de
+// um lead muda (formulário, kanban do CRM, sync da extensão). Decide sozinho
+// se é a primeira vez (cria pessoa+negócio) ou se o lead já está no Agendor
+// (só move a etapa). Só age conforme o mapeamento por etapa salvo em
+// Configurações — etapa sem destino mapeado não faz nada.
+async function autoSyncAgendor(lead){
+  if(!lead || !agendorOn() || !agendorAutoOn()) return;
+  const map=agendorStageFor(lead); if(!map||!map.stageId) return;
+  if(lead.agendorPersonId) await syncAgendorDealStage(lead);
+  else await sendLeadToAgendor(lead.id,true);
 }
 
 // Remove a pessoa (e o negócio) do Agendor. Retorna true se removeu.
@@ -2467,7 +2488,7 @@ async function importExtensionLeads(incoming){
     // Mapas para localizar leads já existentes (por id da extensão ou @usuário)
     const byExt=new Map(), byUser=new Map();
     S.leads.forEach(l=>{ if(l.extId) byExt.set(String(l.extId),l); const u=(l.username||'').toLowerCase(); if(u) byUser.set(u,l); });
-    const rows=[]; let updated=0; const becameContato=[]; const handledIds=[];
+    const rows=[]; let updated=0; const becameContato=[]; const handledIds=[]; const statusChangedIds=[];
     for(const raw of incoming){
       if(!raw||(!raw.name&&!raw.username)) continue;
       const extId=String(raw.id||'');
@@ -2490,7 +2511,7 @@ async function importExtensionLeads(incoming){
         if(raw.name && raw.name.toLowerCase()!==uk && nameIsHandle && raw.name.trim()!==(existing.name||'')) patch.name=raw.name.trim();
         if(Object.keys(patch).length){
           const { error }=await sb.from('leads').update(patch).eq('id',existing.id);
-          if(!error){ Object.assign(existing,patch); updated++; if(patch.status&&isLastStage(patch.status,leadPipeline(existing))) becameContato.push(existing.id); }
+          if(!error){ Object.assign(existing,patch); updated++; if(patch.status){ if(isLastStage(patch.status,leadPipeline(existing))) becameContato.push(existing.id); statusChangedIds.push(existing.id); } }
         }
         continue;
       }
@@ -2520,6 +2541,14 @@ async function importExtensionLeads(incoming){
       await loadLeads(); await loadDeals();
       // garante negociação para todo lead que está em "contato" (novos ou atualizados)
       for(const l of S.leads){ if(isLastStage(l.status,leadPipeline(l))||l.tipo==='empresario') await ensureDealForLead(l.id); }
+      // Envia/move no Agendor os leads que a extensão criou ou fez avançar de
+      // etapa nesta sincronização — antes disso o auto-envio só existia no
+      // painel (kanban/formulário); mudança de status feita na extensão nunca
+      // chegava ao Agendor sozinha, só clicando no botão manual.
+      if(agendorOn()&&agendorAutoOn()){
+        const newExtIds=new Set(rows.map(r=>r.ext_id).filter(Boolean));
+        for(const l of S.leads){ if(statusChangedIds.includes(l.id) || (l.extId&&newExtIds.has(l.extId))) await autoSyncAgendor(l); }
+      }
       renderShell();
       for(const cid of becameContato){ notifyLeadContato(S.leads.find(x=>x.id===cid)); }
       const parts=[];

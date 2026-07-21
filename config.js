@@ -6,8 +6,12 @@ window.IGP_CONFIG = {
   // Notificações push (Web Push). Chave PÚBLICA VAPID — pode ficar exposta.
   // A chave PRIVADA correspondente vai como secret na Edge Function "notify" (NÃO colocar aqui).
   VAPID_PUBLIC_KEY:  'BA1Oos8-GIpl3JxcOD5yRJt5uf9H_1LaOt7BekaTYvoIZUehfrUt5lEGZmUkxUG3KDCUB3LotlIWEg27KDQrIQQ',
-  // URL do Cloudflare Worker que faz proxy da API do Agendor (contorna CORS).
-  // É a MESMA para todos os clientes do sistema — troque aqui, não por organização.
-  // Deixe em branco ('') até publicar o Worker; até lá o envio ao Agendor fica bloqueado por CORS.
-  AGENDOR_PROXY_URL: 'https://sweet-butterfly-7f2b.otaviodasc.workers.dev',
+  // Destino das chamadas "Agendor". Agora aponta para o CRM do HUB DO CORRETOR,
+  // que responde no mesmo dialeto da API do Agendor (endpoint /api/agendor/v3).
+  // O CRM já envia os cabeçalhos de CORS para *.netlify.app, então NÃO precisa
+  // mais do Cloudflare Worker. O token configurado nas Configurações passa a ser
+  // o token de API do CRM (Configurações → API), no formato cota_xxx.
+  AGENDOR_PROXY_URL: 'https://hubcorretorconsorcio.com.br/api/agendor/v3',
+  // Valor anterior (proxy do Agendor real), guardado para rollback:
+  // AGENDOR_PROXY_URL: 'https://sweet-butterfly-7f2b.otaviodasc.workers.dev',
 };
