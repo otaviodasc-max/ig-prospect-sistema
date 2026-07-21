@@ -416,7 +416,7 @@ async function doJoinOrg(){ const code=$('ob-code').value.trim(); if(!code) retu
 /* =====================================================================
    DATA LAYER (mapeia snake_case <-> camelCase)
 ===================================================================== */
-const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', pipeline_id:r.pipeline_id, funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, createdBy:r.created_by, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, customFields:r.custom_fields||{} });
+const leadFromRow = r => ({ id:r.id, name:r.name, username:r.username, phone:r.phone, email:r.email, niche:r.niche, status:r.status||'novo', tipo:r.tipo||'comum', pipeline_id:r.pipeline_id, funil:r.funil, cidade:r.cidade, estado:r.estado, cnpj:r.cnpj, notes:r.notes, followers:r.followers, following:r.following, source:r.source, addedAt:r.added_at, createdBy:r.created_by, extId:r.ext_id, agendorPersonId:r.agendor_person_id, agendorDealId:r.agendor_deal_id, agendorFunnel:r.agendor_funnel, agendorStatus:r.agendor_status, agendorError:r.agendor_error, customFields:r.custom_fields||{} });
 const leadToRow = l => { const o={ name:l.name, username:l.username, phone:l.phone, email:l.email, niche:l.niche, status:l.status, tipo:l.tipo, notes:l.notes, followers:l.followers, following:l.following }; if(l.pipeline_id!==undefined)o.pipeline_id=l.pipeline_id; if(l.source)o.source=l.source; if(l.customFields)o.custom_fields=l.customFields; return o; };
 const callFromRow = r => ({ id:r.id, leadId:r.lead_id, name:r.name, phone:r.phone, outcome:r.outcome||'nao_atendeu', duration:r.duration, at:r.at, notes:r.notes, createdBy:r.created_by });
 const callToRow = c => ({ lead_id:c.leadId||null, name:c.name, phone:c.phone, outcome:c.outcome, duration:c.duration, at:c.at, notes:c.notes });
@@ -678,7 +678,7 @@ function renderLeads(){
   const niches=[...new Set(S.leads.map(l=>l.niche||'').filter(Boolean))].sort();
   const rows=slice.length?slice.map(l=>{ const pl=leadPipeline(l); return `<tr data-id="${esc(l.id)}"${S.sel.mode&&S.sel.ids.has(l.id)?' style="background:rgba(99,102,241,.08)"':''}>
     ${selCell(l.id)}
-    <td class="tdcell-hd"><div class="lead-cell"><div class="avatar">${esc(ini(l.name||l.username))}</div><div><div class="lead-nm">${esc(l.name||'—')}${S.pipelines.length>1?` <span class="tag" style="background:rgba(99,102,241,.14);color:#A5B4FC;border-color:rgba(99,102,241,.25)">${esc(pl?pl.icon:'')} ${esc(pl?pl.name:'')}</span>`:''}</div><div class="lead-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}${agendorOn()&&l.agendorPersonId?' <span style="font-size:.63rem;color:#6EE7B7;font-weight:600;white-space:nowrap">☁ Agendor</span>':''}</div></div></div></td>
+    <td class="tdcell-hd"><div class="lead-cell"><div class="avatar">${esc(ini(l.name||l.username))}</div><div><div class="lead-nm">${esc(l.name||'—')}${S.pipelines.length>1?` <span class="tag" style="background:rgba(99,102,241,.14);color:#A5B4FC;border-color:rgba(99,102,241,.25)">${esc(pl?pl.icon:'')} ${esc(pl?pl.name:'')}</span>`:''}</div><div class="lead-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}${agendorOn()&&l.agendorPersonId?' <span style="font-size:.63rem;color:#6EE7B7;font-weight:600;white-space:nowrap">☁ Agendor</span>':agendorOn()&&l.agendorStatus==='failed'?` <span data-tip="${esc(l.agendorError||'Falha ao enviar ao Agendor')}" style="font-size:.63rem;color:#FCA5A5;font-weight:600;white-space:nowrap;cursor:help">⚠ Agendor</span>`:''}</div></div></div></td>
     <td data-label="Status"><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)};border:1px solid ${stColor(l)}44">${stLabel(l)}</span></td>
     <td data-label="Nicho">${l.niche?`<span class="tag">${esc(l.niche)}</span>`:'<span style="color:var(--t3)">—</span>'}</td>
     <td data-label="Adicionado" style="color:var(--t2);font-size:.73rem">${fmtDate(l.addedAt)}</td>
@@ -790,6 +790,7 @@ function leadForm(id){
     closeModal(); await loadLeads(); if(converted||data.tipo==='empresario'){ await loadDeals(); if(savedId) await ensureDealForLead(savedId); } renderShell();
     if(converted && prevStatus!==data.status) notifyLeadContato(S.leads.find(x=>x.id===savedId)||data);
     if(converted && agendorOn() && agendorAutoOn() && savedId){ const lead=S.leads.find(x=>x.id===savedId); if(lead && !lead.agendorPersonId) sendLeadToAgendor(savedId,true); }
+    if(prevStatus && prevStatus!==data.status && savedId && agendorOn()){ const lead=S.leads.find(x=>x.id===savedId); if(lead && lead.agendorPersonId) syncAgendorDealStage(lead); }
   };
 }
 function delLead(id){ const l=S.leads.find(x=>x.id===id);
@@ -1040,7 +1041,7 @@ function renderCRM(){
   const rail=[['','TODOS',allP.length],...S.pipelines.map(p=>[p.id,pipelineSigla(p),allP.filter(l=>(l.pipeline_id||(defaultPipeline()&&defaultPipeline().id))===p.id).length])]
     .map(([v,sg,n])=>`<button class="crm-rail-btn${S.crmPipelineId===v?' active':''}" data-crmpl="${v}" title="${esc(v?(S.pipelines.find(p=>p.id===v)||{}).name:'Todos os funis')} (${n})">${esc(sg)}${n?`<span class="rail-cnt">${n}</span>`:''}</button>`).join('');
   const board=cols.map(st=>{ const items=leads.filter(l=>bucket(l)===st).sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0));
-    const cards=items.length?items.map(l=>`<div class="crm-card${S.sel.mode&&S.sel.ids.has(l.id)?' sel-on':''}" draggable="${!S.sel.mode}" data-id="${esc(l.id)}"><div class="crm-card-top">${selChk(l.id)}<div class="avatar">${esc(ini(l.name||l.username))}</div><div style="min-width:0;flex:1"><div class="crm-card-nm">${esc(l.name||l.username||'—')}</div><div class="crm-card-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}</div></div></div><div class="crm-card-meta">${l.niche?`<span class="tag">${esc(l.niche)}</span>`:''}${l.agendorPersonId&&agendorOn()?`<span class="info-chip" style="color:#6EE7B7">☁</span>`:''}</div></div>`).join(''):'<div class="crm-card-empty">Arraste aqui</div>';
+    const cards=items.length?items.map(l=>`<div class="crm-card${S.sel.mode&&S.sel.ids.has(l.id)?' sel-on':''}" draggable="${!S.sel.mode}" data-id="${esc(l.id)}"><div class="crm-card-top">${selChk(l.id)}<div class="avatar">${esc(ini(l.name||l.username))}</div><div style="min-width:0;flex:1"><div class="crm-card-nm">${esc(l.name||l.username||'—')}</div><div class="crm-card-un">${l.username?'@'+esc(l.username):esc(l.phone||'—')}</div></div></div><div class="crm-card-meta">${l.niche?`<span class="tag">${esc(l.niche)}</span>`:''}${l.agendorPersonId&&agendorOn()?`<span class="info-chip" style="color:#6EE7B7">☁</span>`:agendorOn()&&l.agendorStatus==='failed'?`<span class="info-chip" data-tip="${esc(l.agendorError||'Falha ao enviar ao Agendor')}" style="color:#FCA5A5;cursor:help">⚠</span>`:''}</div></div>`).join(''):'<div class="crm-card-empty">Arraste aqui</div>';
     return `<div class="crm-col" data-status="${st}"><div class="crm-col-hd"><span class="crm-col-dot" style="background:${colSC[st]}"></span><span class="crm-col-nm">${(colSM[st]||{}).label||st}</span><span class="crm-col-cnt">${items.length}</span></div><div class="crm-col-bd">${cards}</div></div>`; }).join('');
   const hint='Arraste os cartões entre as colunas. Ao chegar na última etapa, vira negociação e (se configurado) vai ao Agendor.';
   const boardHtml = leads.length?board:`<div class="empty-state"><div class="empty-title">${q?'Nenhum resultado':'Nenhum lead'}</div><div class="empty-sub">${q?`Nada encontrado para "${esc(S.crmQ)}".`:'Cadastre um lead para começar.'}</div></div>`;
@@ -1053,7 +1054,7 @@ function renderCRM(){
   board2.addEventListener('dragend',e=>{ const c=e.target.closest('.crm-card'); if(c)c.classList.remove('dragging'); document.querySelectorAll('.crm-col.dragover').forEach(x=>x.classList.remove('dragover')); });
   board2.addEventListener('dragover',e=>{ const col=e.target.closest('.crm-col'); if(col){ e.preventDefault(); col.classList.add('dragover'); } });
   board2.addEventListener('dragleave',e=>{ const col=e.target.closest('.crm-col'); if(col&&!col.contains(e.relatedTarget))col.classList.remove('dragover'); });
-  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { const lp=leadPipeline(l); toast(`Movido para "${(SM(lp)[ns]||{}).label||ns}"`,'success'); if(isLastStage(ns,lp)||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(isLastStage(ns,lp)){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } if(agendorOn()&&agendorAutoOn()&&!l.agendorPersonId) sendLeadToAgendor(id,true); } } } renderCRM(); });
+  board2.addEventListener('drop',async e=>{ const col=e.target.closest('.crm-col'); if(!col||!dragId)return; e.preventDefault(); const id=dragId; dragId=null; const ns=col.dataset.status; const l=S.leads.find(x=>x.id===id); if(l&&l.status!==ns){ l.status=ns; const{error}=await sb.from('leads').update({status:ns}).eq('id',id); if(error){ toast(error.message,'error'); } else { const lp=leadPipeline(l); toast(`Movido para "${(SM(lp)[ns]||{}).label||ns}"`,'success'); if(isLastStage(ns,lp)||l.tipo==='empresario'){ await loadDeals(); await ensureDealForLead(id); if(isLastStage(ns,lp)){ toast('Negociação criada na aba Negociações ☑','success'); notifyLeadContato(l); } if(agendorOn()&&agendorAutoOn()&&!l.agendorPersonId) sendLeadToAgendor(id,true); } if(agendorOn()&&l.agendorPersonId) syncAgendorDealStage(l); } } renderCRM(); });
   board2.addEventListener('click',e=>{ const c=e.target.closest('.crm-card[data-id]'); if(!c)return; if(S.sel.mode){ selToggle(c.dataset.id); renderCRM(); return; } leadForm(c.dataset.id); });
   bindSelBar(leads.map(l=>l.id), renderCRM, bulkDeleteLeads);
 }
@@ -1783,11 +1784,20 @@ function agendorDisplayName(lead){
   return 'Lead IGProspect';
 }
 
-// Decide o funil/etapa do Agendor conforme o FUNIL (pipeline) do lead —
-// cada pipeline tem seu próprio mapeamento (org_pipelines.agendor_map).
+// Decide o funil/etapa do Agendor conforme a ETAPA ATUAL do lead (novo,
+// chamado, interessado, etc.) — cada pipeline mapeia CADA uma das suas
+// etapas pra uma etapa correspondente no Agendor (org_pipelines.agendor_map
+// = { [stageKey]: {funnelId,funnelName,stageId,stageName} }). Antes só
+// existia UM destino fixo pro pipeline inteiro — todo lead caía sempre na
+// mesma etapa do Agendor, não importa em que etapa estivesse no sistema.
 function agendorStageFor(lead){
   const p=leadPipeline(lead);
-  return (p&&p.agendor_map)||null;
+  const map=(p&&p.agendor_map)||null;
+  if(!map) return null;
+  // Mapeamento antigo (formato "achatado", de antes de existir por etapa) —
+  // continua valendo como destino único até o dono salvar de novo.
+  if(map.stageId) return map;
+  return map[lead.status||'novo']||null;
 }
 
 async function loadAgendorFunnels(){
@@ -1812,13 +1822,24 @@ async function testAgendor(){
   finally{ if(btn) btn.disabled=false; }
 }
 
-// Cria pessoa + negócio no funil roteado pelo tipo. Salva ids no lead.
+// Cria pessoa + negócio no funil roteado pela ETAPA ATUAL do lead. Salva ids
+// no lead. Mesmo sem mapeamento (ou em modo silencioso, disparado sozinho ao
+// chegar na última etapa) SEMPRE grava um status — antes, "sem mapeamento" +
+// silent=true saía sem deixar rastro nenhum, e o time não tinha como saber
+// se aquele lead tinha ido ao Agendor ou não.
 async function sendLeadToAgendor(id, silent=false){
   const lead=S.leads.find(l=>l.id===id); if(!lead) return;
   if(!agendorOn()){ if(!silent){ toast('Configure o token do Agendor nas Configurações','warn'); S.route='settings'; renderShell(); } return; }
   const map=agendorStageFor(lead);
   const tipoLbl=(leadPipeline(lead)&&leadPipeline(lead).name)||'Negócios';
-  if(!map||!map.stageId){ if(!silent){ toast(`Defina o destino no Agendor do funil "${tipoLbl}" nas Configurações`,'warn'); S.route='settings'; renderShell(); } return; }
+  if(!map||!map.stageId){
+    const msg=`Sem destino no Agendor mapeado para a etapa "${stLabel(lead)}" do funil "${tipoLbl}"`;
+    lead.agendorStatus='failed'; lead.agendorError=msg;
+    try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:msg }).eq('id',id); }catch(e){}
+    if(!silent){ toast(`Defina o destino no Agendor da etapa "${stLabel(lead)}" nas Configurações`,'warn'); S.route='settings'; renderShell(); }
+    else if(S.route==='leads'||S.route==='crm') renderShell();
+    return;
+  }
   lead.agendorStatus='pending'; if(S.route==='leads') renderShell();
   try{
     const contact={};
@@ -1832,15 +1853,31 @@ async function sendLeadToAgendor(id, silent=false){
     const personId=(person&&person.data&&person.data.id)||(person&&person.id);
     let dealId=null;
     if(personId){ const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:displayName, dealStage:map.stageId, funnel:map.funnelId, description:`Enviado pelo IGProspect (funil ${map.funnelName}).` }); dealId=(deal&&deal.data&&deal.data.id)||(deal&&deal.id)||null; }
-    await sb.from('leads').update({ agendor_person_id:personId?String(personId):null, agendor_deal_id:dealId?String(dealId):null, agendor_funnel:map.funnelName, agendor_status:'ok' }).eq('id',id);
-    Object.assign(lead,{ agendorPersonId:personId, agendorDealId:dealId, agendorFunnel:map.funnelName, agendorStatus:'ok' });
+    await sb.from('leads').update({ agendor_person_id:personId?String(personId):null, agendor_deal_id:dealId?String(dealId):null, agendor_funnel:map.funnelName, agendor_status:'ok', agendor_error:null }).eq('id',id);
+    Object.assign(lead,{ agendorPersonId:personId, agendorDealId:dealId, agendorFunnel:map.funnelName, agendorStatus:'ok', agendorError:null });
     toast(`Enviado ao Agendor → funil ${map.funnelName} ✓`,'success');
   }catch(err){
-    lead.agendorStatus='failed';
-    try{ await sb.from('leads').update({ agendor_status:'failed' }).eq('id',id); }catch(e){}
+    lead.agendorStatus='failed'; lead.agendorError=err.message;
+    try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:err.message }).eq('id',id); }catch(e){}
     toast('Falha ao enviar ao Agendor: '+err.message,'error'); agendorCorsHint(err.message);
   }
   if(S.route==='leads'||S.route==='crm') renderShell();
+}
+// Depois que um lead JÁ tem negócio no Agendor, avançar a etapa no sistema
+// deve mover a etapa lá também — sem isso o negócio ficava travado na etapa
+// em que foi criado, mesmo o lead avançando no funil do sistema.
+async function syncAgendorDealStage(lead){
+  if(!agendorOn()||!lead.agendorDealId) return;
+  const map=agendorStageFor(lead);
+  if(!map||!map.stageId) return;
+  try{
+    await agendorRequest(`/deals/${lead.agendorDealId}`,'PUT',{ dealStage:map.stageId, funnel:map.funnelId });
+    await sb.from('leads').update({ agendor_funnel:map.funnelName, agendor_status:'ok', agendor_error:null }).eq('id',lead.id);
+    Object.assign(lead,{ agendorFunnel:map.funnelName, agendorStatus:'ok', agendorError:null });
+  }catch(err){
+    lead.agendorStatus='failed'; lead.agendorError=err.message;
+    try{ await sb.from('leads').update({ agendor_status:'failed', agendor_error:err.message }).eq('id',lead.id); }catch(e){}
+  }
 }
 
 // Remove a pessoa (e o negócio) do Agendor. Retorna true se removeu.
@@ -2162,10 +2199,20 @@ function renderSettings(){
         <div class="stg-row"><div class="stg-ri"><div class="stg-ri-t">Envio automático</div><div class="stg-ri-s">Ao chegar na última etapa de um funil, envia sozinho ao Agendor</div></div><label style="cursor:pointer"><input type="checkbox" id="st-auto" ${agendorAutoOn()?'checked':''} style="width:20px;height:20px;cursor:pointer;accent-color:#10B981"></label></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="st-save">Salvar integração</button><button class="btn btn-outline" id="ag-test">Testar conexão</button></div>
         <div style="height:1px;background:rgba(255,255,255,.06);margin:4px 0"></div>
-        <div class="stg-ri-t">Roteamento por funil</div>
-        <div class="stg-ri-s" style="margin-bottom:8px">Cada funil de lead (aba Personalização) pode apontar para um funil/etapa diferente do Agendor.</div>
+        <div class="stg-ri-t">Roteamento por etapa</div>
+        <div class="stg-ri-s" style="margin-bottom:8px">Cada ETAPA de cada funil de lead aponta pra uma etapa do Agendor — quando o lead muda de etapa aqui, o negócio move de etapa lá também (não fica sempre no mesmo destino fixo). Etapas sem mapeamento não são enviadas.</div>
         <button class="btn btn-outline btn-sm" id="ag-load-funnels" style="align-self:flex-start">↻ Carregar funis do Agendor</button>
-        ${S.pipelines.map(p=>{ const cv=p.agendor_map?`${p.agendor_map.funnelId}:${p.agendor_map.stageId}`:''; const opts=`<option value="">— selecione —</option>`+S._funnelStages.map(f=>{ const v=`${f.funnelId}:${f.stageId}`; return `<option value="${v}" ${v===cv?'selected':''}>${esc(f.funnelName)} · ${esc(f.stageName)}</option>`; }).join(''); return S._funnelStages.length?`<div class="stg-field"><label class="stg-label">${esc(p.icon||'')} ${esc(p.name)} →</label><select class="stg-input ag-map-pl" data-pl="${p.id}">${opts}</select></div>`:`<div class="stg-ri-s">${esc(p.icon||'')} ${esc(p.name)} → ${p.agendor_map?esc(p.agendor_map.funnelName+' · '+p.agendor_map.stageName):'não definido'}</div>`; }).join('')}
+        ${!S._funnelStages.length?`<div class="stg-ri-s">Carregue os funis do Agendor acima pra mapear cada etapa.</div>`:S.pipelines.map(p=>{
+          const stages=stagesOf(p);
+          const flatMap = (p.agendor_map&&!p.agendor_map.stageId) ? p.agendor_map : null;
+          const rows=stages.map(s=>{
+            const cur=flatMap&&flatMap[s.key];
+            const cv=cur?`${cur.funnelId}:${cur.stageId}`:'';
+            const opts=`<option value="">— não enviar —</option>`+S._funnelStages.map(f=>{ const v=`${f.funnelId}:${f.stageId}`; return `<option value="${v}" ${v===cv?'selected':''}>${esc(f.funnelName)} · ${esc(f.stageName)}</option>`; }).join('');
+            return `<div class="stg-field"><label class="stg-label">${esc(s.label)}</label><select class="stg-input ag-map-stage" data-pl="${p.id}" data-stage="${esc(s.key)}">${opts}</select></div>`;
+          }).join('');
+          return `<div style="margin-bottom:12px;padding-bottom:2px"><div style="font-size:.74rem;font-weight:700;color:var(--t2);margin-bottom:6px">${esc(p.icon||'')} ${esc(p.name)}</div><div class="form-grid">${rows}</div></div>`;
+        }).join('')}
         ${S._funnelStages.length?`<button class="btn btn-primary btn-sm" id="ag-save-map" style="align-self:flex-start">Salvar mapeamento</button>`:''}
         <div style="font-size:.72rem;color:var(--t2);margin-top:6px;padding:9px 11px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px">⚠️ O navegador bloqueia chamadas diretas à API do Agendor (CORS) — por isso o envio passa por um proxy (Cloudflare Worker) já configurado no sistema.</div>
       `}
@@ -2214,8 +2261,16 @@ function renderSettings(){
   $('ag-load-funnels')&&($('ag-load-funnels').onclick=loadAgendorFunnels);
   $('ag-save-map')&&($('ag-save-map').onclick=async()=>{
     const parse=v=>{ if(!v) return null; const [fid,sid]=v.split(':'); const f=S._funnelStages.find(x=>String(x.funnelId)===fid&&String(x.stageId)===sid); return f?{funnelId:f.funnelId,stageId:f.stageId,funnelName:f.funnelName,stageName:f.stageName}:null; };
-    const sels=[...document.querySelectorAll('.ag-map-pl')];
-    for(const sel of sels){ const agendor_map=parse(sel.value); const{error}=await sb.from('org_pipelines').update({agendor_map}).eq('id',sel.dataset.pl); if(error){toast(error.message,'error');return;} }
+    const byPl={};
+    document.querySelectorAll('.ag-map-stage').forEach(sel=>{
+      const pl=sel.dataset.pl; if(!byPl[pl]) byPl[pl]={};
+      const mapped=parse(sel.value); if(mapped) byPl[pl][sel.dataset.stage]=mapped;
+    });
+    for(const plId in byPl){
+      const agendor_map=Object.keys(byPl[plId]).length?byPl[plId]:null;
+      const{error}=await sb.from('org_pipelines').update({agendor_map}).eq('id',plId);
+      if(error){toast(error.message,'error');return;}
+    }
     await loadPipelines(); toast('Mapeamento salvo ✓','success'); renderSettings();
   });
   $('st-module')&&($('st-module').onchange=async e=>{
