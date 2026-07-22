@@ -135,7 +135,18 @@
   const RESERVED = new Set(['explore','reel','reels','p','tv','stories','accounts','direct','notifications','ar','challenges','audio','shop','about','privacy','help','']);
   // Títulos genéricos de seção do Instagram que às vezes acabam parando onde
   // deveria estar o nome da pessoa (fallback de heading pego errado no Direct).
-  const GENERIC_NAMES = new Set(['mensagens','messages','direct','solicitações','solicitacoes','requests','inbox','chats','conversas','não seguidores','nao seguidores','not following you back','seguidores','digital creator','personal blog','public figure','blogger','este perfil é privado','this account is private','conta privada']);
+  const GENERIC_NAMES = new Set(['mensagens','messages','direct','solicitações','solicitacoes','requests','inbox','chats','conversas','não seguidores','nao seguidores','not following you back','seguidores','digital creator','personal blog','public figure','blogger','este perfil é privado','esta conta é privada','essa conta é privada','perfil privado','this account is private','conta privada']);
+  // Mesma lista de botões/rótulos de layout do Instagram (não nomes de gente)
+  // que nameFromProfile já filtrava sozinho — junto com GENERIC_NAMES acima,
+  // cobre tanto rótulo de BOTÃO ("Enviar mensagem") quanto título de SEÇÃO
+  // ("Mensagens"), que são strings diferentes e por isso escapavam um do outro.
+  const BAD_NAME_RE=/^(seguir|follow|following|seguindo|message|mensagem|enviar mensagem|publicaç|posts?|seguidor|follower|não segu|nao segu|not follow|verificad|editar|ver tudo|sugest|cancelar|nota|stories?|destaque|digital creator|personal blog|public figure|blogger|criador\(a\)|perfil.{0,3}privad|account is private|conta privada|remover|bloquear|denunciar|silenciar|restringir)/i;
+  function isBadName(t){
+    const tl=(t||'').trim().toLowerCase();
+    if(!tl) return true;
+    if(GENERIC_NAMES.has(tl)) return true;
+    return BAD_NAME_RE.test(tl);
+  }
 
   const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -365,7 +376,6 @@
   function nameFromProfile(uLow){
     try{
       const root=document.querySelector('main')||document.body;
-      const bad=/^(seguir|follow|following|seguindo|message|mensagem|enviar mensagem|publicaç|posts?|seguidor|follower|não segu|nao segu|not follow|verificad|editar|ver tudo|sugest|cancelar|nota|stories?|destaque|digital creator|personal blog|public figure|blogger|criador\(a\)|perfil.{0,3}privad|account is private|conta privada|remover|bloquear|denunciar|silenciar|restringir)/i;
       const els=root.querySelectorAll('h1,h2,span,div');
       for(const el of els){
         if(el.children.length>0) continue;              // só nós-folha (evita blocos grandes)
@@ -378,7 +388,7 @@
         if(/^[\d.,\s]+$/.test(t)) continue;             // só números (contadores)
         if(/\d+\s*(post|seguidor|follower|seguindo|mil|mi\b)/i.test(t)) continue;
         if(!/[A-Za-zÀ-ÿ]/.test(t)) continue;            // precisa ter letra
-        if(bad.test(t)) continue;                       // botões/rótulos comuns
+        if(isBadName(t)) continue;                      // botões/rótulos/títulos de seção comuns
         return t;
       }
     }catch(_){}
@@ -393,12 +403,15 @@
     if(dom && dom.toLowerCase()!==uLow) return dom;
     // 2) og:title / título — só se o "(@handle)" bater com ESTE perfil (evita pegar
     //    o nome de um perfil anterior, pois o Instagram é SPA e o título atrasa).
+    // Sem o mesmo filtro de isBadName daqui, um título tipo "Perfil privado
+    // (@user) • Instagram" (Instagram usa esse texto no lugar do nome pra
+    // contas privadas que você não segue) virava o "nome" do lead direto.
     const parse=(s)=>{
       if(!s) return '';
       const mm=s.match(/^(.+?)\s*\(@([A-Za-z0-9._]+)\)/);
       if(!mm || mm[2].toLowerCase()!==uLow) return '';
       const nm=mm[1].trim();
-      return (nm && nm.toLowerCase()!=='instagram' && nm.toLowerCase()!==uLow) ? nm : '';
+      return (nm && !isBadName(nm) && nm.toLowerCase()!=='instagram' && nm.toLowerCase()!==uLow) ? nm : '';
     };
     try{ const og=document.querySelector('meta[property="og:title"]'); const n=parse(og&&og.content); if(n) return n; }catch(_){}
     const n2=parse(document.title); if(n2) return n2;
@@ -448,7 +461,7 @@
       // Nome antigo grudado com o @ sem separador (bug do getDirectPartner
       // já corrigido na captura, mas leads salvos antes continuam errados).
       const glued = n.length>uLow.length && n.endsWith(uLow);
-      const isHandle = !l.name || n===uLow || n==='@'+uLow || corrupted || glued || GENERIC_NAMES.has(n);
+      const isHandle = !l.name || n===uLow || n==='@'+uLow || corrupted || glued || isBadName(n);
       if(isHandle && l.name!==name){ changed=true; fixedIds.push(l.id); return { ...l, name, profileUrl:l.profileUrl||url }; }
       return l;
     });
@@ -538,11 +551,11 @@
     // Fallback pro heading da página só entra se o que já achamos não presta —
     // e mesmo assim, nunca aceita um título genérico de seção (ex.: "Mensagens",
     // que é o header compartilhado da caixa de entrada, não da conversa).
-    if(GENERIC_NAMES.has(name.toLowerCase())) name='';
+    if(isBadName(name)) name='';
     if(!name){
       const h=header.querySelector('h1,h2,[role="heading"]');
       const hName=h?(h.textContent||'').trim():'';
-      name = GENERIC_NAMES.has(hName.toLowerCase()) ? '' : hName;
+      name = isBadName(hName) ? '' : hName;
     }
     if(username) name=stripGluedHandle(name, username);
     if(name && name.length>60) name=name.slice(0,60);

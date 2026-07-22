@@ -2521,10 +2521,12 @@ function bindBridge(){
   // mais tarde, para outra equipe que esteja aberta no momento do sync.
   window.postMessage({ source:'igp-dashboard', type:'request-leads', orgId:S.org&&S.org.id, orgName:S.org&&S.org.name }, '*');
 }
-// Títulos genéricos de seção do Instagram que a extensão pode ter capturado
-// como "nome" por engano (ex.: cabeçalho da caixa de Mensagens) — tratado
+// Títulos genéricos de seção/rótulo do Instagram que a extensão pode ter
+// capturado como "nome" por engano (ex.: cabeçalho da caixa de Mensagens, ou
+// "Perfil privado" no lugar do nome de conta privada não seguida) — tratado
 // como nome ruim pra corrigir sozinho assim que um nome de verdade chegar.
-const GENERIC_NAMES = new Set(['mensagens','messages','direct','solicitações','solicitacoes','requests','inbox','chats','conversas']);
+// Mantida em sincronia com a mesma lista em extension/content.js.
+const GENERIC_NAMES = new Set(['mensagens','messages','direct','solicitações','solicitacoes','requests','inbox','chats','conversas','não seguidores','nao seguidores','not following you back','seguidores','digital creator','personal blog','public figure','blogger','este perfil é privado','esta conta é privada','essa conta é privada','perfil privado','this account is private','conta privada']);
 async function importExtensionLeads(incoming){
   if(!Array.isArray(incoming) || !incoming.length || !S.org) return;
   if(bridgeBusy){ bridgePending=incoming; return; }   // já sincronizando → guarda o último e processa depois
@@ -2574,7 +2576,11 @@ async function importExtensionLeads(incoming){
       // por isso todo lead vindo dela entra no pipeline is_default da org.
       const extPipeline=defaultPipeline();
       const extStatus=(extPipeline&&STS(extPipeline).includes(raw.status))?raw.status:(STS(extPipeline)[0]||'novo');
-      const row={ name:raw.name||'', username:uk||'', phone:raw.phone||'', niche:raw.niche||'', status:extStatus, tipo:'comum', pipeline_id:extPipeline&&extPipeline.id, source:'extensao', ext_id:extId, added_at:raw.addedAt||new Date().toISOString(), notes };
+      // Segunda barreira contra nome genérico (ex.: extensão desatualizada
+      // mandando "Mensagens"/"Perfil privado") — a extensão já filtra isso na
+      // captura, mas um lead NOVO não passa pela correção de "existing" acima.
+      const rawNameOk = raw.name && !GENERIC_NAMES.has(raw.name.trim().toLowerCase());
+      const row={ name:rawNameOk?raw.name:'', username:uk||'', phone:raw.phone||'', niche:raw.niche||'', status:extStatus, tipo:'comum', pipeline_id:extPipeline&&extPipeline.id, source:'extensao', ext_id:extId, added_at:raw.addedAt||new Date().toISOString(), notes };
       rows.push(row);
       if(extId) byExt.set(extId,row); if(uk) byUser.set(uk,row);
     }
