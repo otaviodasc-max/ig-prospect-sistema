@@ -2056,6 +2056,36 @@ function subscribeMessages(){
     })
     .subscribe();
 }
+
+// Sem isso, uma mudança feita pela extensão (ou por outra pessoa da equipe,
+// em outro aparelho) só aparecia no painel depois de recarregar a página —
+// o painel dependia só da ponte via postMessage (bridge.js), que exige a
+// extensão instalada NESTE MESMO navegador com a aba certa aberta. Realtime
+// do Supabase reflete qualquer escrita na tabela leads, de qualquer origem,
+// sem precisar de F5. Só atualiza o estado em memória e redesenha — não
+// dispara Agendor nem cria negociação (isso é responsabilidade de quem fez
+// a mudança de verdade, ver comentário em importExtensionLeads).
+let leadsChannel=null, leadsChannelOrgId=null;
+function subscribeLeads(){
+  if(!sb || !S.org) return;
+  if(leadsChannel && leadsChannelOrgId===S.org.id) return; // já inscrito nesta equipe
+  if(leadsChannel){ sb.removeChannel(leadsChannel); leadsChannel=null; }
+  leadsChannelOrgId=S.org.id;
+  leadsChannel = sb.channel('leads-'+S.org.id)
+    .on('postgres_changes', { event:'*', schema:'public', table:'leads', filter:`org_id=eq.${S.org.id}` }, payload=>{
+      if(payload.eventType==='DELETE'){
+        const oldId=payload.old&&payload.old.id; if(!oldId) return;
+        S.leads=S.leads.filter(l=>l.id!==oldId);
+      } else {
+        const row=payload.new; if(!row) return;
+        const lead=leadFromRow(row);
+        const idx=S.leads.findIndex(l=>l.id===lead.id);
+        if(idx===-1) S.leads.unshift(lead); else S.leads[idx]=lead;
+      }
+      if(S.route==='leads'||S.route==='crm'||S.route==='dashboard') renderShell();
+    })
+    .subscribe();
+}
 let teamPoll=null;
 function startTeamPoll(){
   if(teamPoll) clearInterval(teamPoll);
@@ -2661,6 +2691,7 @@ async function boot(freshLogin){
   await loadOrgConfig(); await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); await loadMembers(); await loadWeeklyPayments(); renderShell();
   bindBridge();
   subscribeMessages();
+  subscribeLeads();
   ensurePushSubscription();   // re-inscreve este aparelho se já tem permissão
 }
 // Conserta empresários antigos que entraram com status de prospecção (chamado etc.) → "A Contatar".
