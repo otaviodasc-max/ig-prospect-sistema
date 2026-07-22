@@ -445,7 +445,10 @@
       // nome "ruim" = vazio, igual ao @, ou contém "(@outro)" que não é o @ deste lead (corrompido pelo bug)
       const foreign=nClean.match(/\(@([A-Za-z0-9._]+)\)/);
       const corrupted = !!foreign && foreign[1].toLowerCase()!==uLow;
-      const isHandle = !l.name || n===uLow || n==='@'+uLow || corrupted || GENERIC_NAMES.has(n);
+      // Nome antigo grudado com o @ sem separador (bug do getDirectPartner
+      // já corrigido na captura, mas leads salvos antes continuam errados).
+      const glued = n.length>uLow.length && n.endsWith(uLow);
+      const isHandle = !l.name || n===uLow || n==='@'+uLow || corrupted || glued || GENERIC_NAMES.has(n);
       if(isHandle && l.name!==name){ changed=true; fixedIds.push(l.id); return { ...l, name, profileUrl:l.profileUrl||url }; }
       return l;
     });
@@ -503,6 +506,19 @@
     return best;
   }
 
+  // Alguns cabeçalhos do Direct colam nome + @usuário dentro do MESMO link
+  // (nome maior + username menor embaixo, no mesmo <a>) — a.textContent (ou
+  // h.textContent) gruda os dois sem espaço: "Otávio Corrêa"+"otaviocorreai_"
+  // vira "Otávio Corrêaotaviocorreai_". Corta o username colado no final.
+  function stripGluedHandle(name, username){
+    if(!name||!username) return name;
+    const nl=name.toLowerCase(), ul=username.toLowerCase();
+    if(nl.length<=ul.length) return name;
+    if(nl.endsWith('@'+ul)) return name.slice(0,name.length-ul.length-1).trim();
+    if(nl.endsWith(ul)) return name.slice(0,name.length-ul.length).trim();
+    return name;
+  }
+
   // Identifica o participante da conversa (nome / @usuário) pelo cabeçalho do Direct.
   function getDirectPartner(root){
     let username='', name='';
@@ -528,6 +544,7 @@
       const hName=h?(h.textContent||'').trim():'';
       name = GENERIC_NAMES.has(hName.toLowerCase()) ? '' : hName;
     }
+    if(username) name=stripGluedHandle(name, username);
     if(name && name.length>60) name=name.slice(0,60);
     return { username, name };
   }

@@ -2554,11 +2554,14 @@ async function importExtensionLeads(incoming){
         const patch={};
         if(newIdx>oldIdx) patch.status=raw.status;
         if(raw.phone && raw.phone!==(existing.phone||'')) patch.phone=raw.phone;
-        // Corrige nome antigo que ficou igual ao @, ou corrompido com "(@outro)", quando a extensão manda o nome real
+        // Corrige nome antigo que ficou igual ao @, corrompido com "(@outro)", ou
+        // grudado com o @ sem separador (bug antigo de captura no Direct do
+        // Instagram — ver getDirectPartner na extensão), quando ela manda o nome real
         const exU=(existing.username||'').toLowerCase(), exNclean=(existing.name||'').trim(), exN=exNclean.toLowerCase();
         const exForeign=exNclean.match(/\(@([A-Za-z0-9._]+)\)/);
         const exCorrupted=!!exForeign && exForeign[1].toLowerCase()!==exU;
-        const nameIsHandle = !existing.name || exN===exU || exN==='@'+exU || exCorrupted || GENERIC_NAMES.has(exN);
+        const exGlued=exU && exN.length>exU.length && exN.endsWith(exU);
+        const nameIsHandle = !existing.name || exN===exU || exN==='@'+exU || exCorrupted || exGlued || GENERIC_NAMES.has(exN);
         if(raw.name && raw.name.toLowerCase()!==uk && nameIsHandle && raw.name.trim()!==(existing.name||'')) patch.name=raw.name.trim();
         if(Object.keys(patch).length){
           const { error }=await sb.from('leads').update(patch).eq('id',existing.id);
