@@ -794,20 +794,35 @@
   // mouseup), como um clique longo de verdade. Alguns layouts do Instagram
   // pedem uma confirmação extra depois de soltar — se aparecer um botão de
   // enviar visível logo em seguida, tenta clicar nele também.
+  // O Instagram descarta cliques disparados por dispatchEvent() do JS da
+  // página — eles sempre nascem com isTrusted=false, e a proteção
+  // anti-automação deles simplesmente ignora (nem o mousedown chega a
+  // acionar a gravação). Por isso o "segurar o botão" passa pro
+  // background.js, que usa o Chrome DevTools Protocol pra simular um clique
+  // no nível do navegador — indistinguível de um clique humano de verdade
+  // (ver 'trusted_press_hold' em background.js). Custo: o Chrome mostra uma
+  // barra "esta extensão está depurando a aba" enquanto o clique está
+  // "segurado", some sozinha ao soltar.
   function pressAndHold(btn, durationSec, done){
-    const opts={bubbles:true, cancelable:true, view:window, button:0, buttons:1};
-    btn.dispatchEvent(new PointerEvent('pointerdown', {...opts, pointerId:1, pointerType:'mouse', isPrimary:true}));
-    btn.dispatchEvent(new MouseEvent('mousedown', opts));
-    const ms=Math.max(500, Math.round((durationSec||3)*1000))+500;
-    setTimeout(()=>{
-      btn.dispatchEvent(new PointerEvent('pointerup', {...opts, pointerId:1, pointerType:'mouse', isPrimary:true}));
-      btn.dispatchEvent(new MouseEvent('mouseup', opts));
+    const box=btn.getBoundingClientRect();
+    const x=Math.round(box.left+box.width/2);
+    const y=Math.round(box.top+box.height/2);
+    const holdMs=Math.max(500, Math.round((durationSec||3)*1000))+500;
+    chrome.runtime.sendMessage({ type:'trusted_press_hold', x, y, holdMs }, res=>{
+      if(chrome.runtime.lastError || !res || !res.ok){
+        const raw=(res&&res.error)||(chrome.runtime.lastError&&chrome.runtime.lastError.message)||'erro desconhecido';
+        const friendly=/already attached|another debugger/i.test(raw)
+          ? 'Feche o DevTools (F12) desta aba do Instagram e tente de novo — não dá pra usar os dois ao mesmo tempo.'
+          : `Não consegui simular o clique (${raw})`;
+        done(false, friendly);
+        return;
+      }
       setTimeout(()=>{
         const sendBtn=document.querySelector('[aria-label="Enviar" i], [aria-label="Send" i]');
         if(sendBtn) sendBtn.click();
-        done();
+        done(true);
       }, 400);
-    }, ms);
+    });
   }
 
   function sendAudioToDirect(id){
@@ -855,7 +870,10 @@
         clearTimeout(timeoutGuard);
         const dur=ev.data.duration||audio.duration||3;
         toast(`🎙️ Gravando "${audio.name}" (${fmtDuration(dur)})... não navegue nem feche a conversa`,'info');
-        pressAndHold(btn, dur, ()=>finish(`✓ Áudio "${audio.name}" enviado na conversa!`,'ok'));
+        pressAndHold(btn, dur, (ok, err)=>{
+          if(ok) finish(`✓ Áudio "${audio.name}" enviado na conversa!`,'ok');
+          else finish(err||'Falha ao enviar o áudio','err');
+        });
       }
       if(ev.data.type==='IGP_AUDIO_ERROR'){
         finish('Não consegui preparar esse áudio pra envio','err');

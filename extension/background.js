@@ -201,4 +201,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep message channel open for async response
   }
 
+  // Segura o botão de gravar áudio do Direct com um clique DE VERDADE, via
+  // Chrome DevTools Protocol — o Instagram descarta cliques simulados por
+  // dispatchEvent() do JS da página (proteção anti-automação: esses eventos
+  // sempre nascem com isTrusted=false), então content.js não consegue mais
+  // iniciar a gravação sozinho. O CDP dispara o clique no nível do próprio
+  // navegador (mesmo mecanismo usado por ferramentas como Puppeteer), então
+  // o Instagram não consegue diferenciar de um clique humano de verdade.
+  // Só o service worker tem acesso à API chrome.debugger — por isso esse
+  // passo (e só ele) precisa passar por aqui, mesmo com todo o resto do
+  // fluxo de áudio rodando em content.js/injected.js.
+  if (msg.type === 'trusted_press_hold') {
+    const tabId = sender.tab && sender.tab.id;
+    const { x, y, holdMs } = msg;
+    if (!tabId) { sendResponse({ ok: false, error: 'sem aba de origem' }); return; }
+    (async () => {
+      let attached = false;
+      try {
+        await chrome.debugger.attach({ tabId }, '1.3');
+        attached = true;
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+        await new Promise(r => setTimeout(r, Math.max(0, holdMs || 0)));
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+        await chrome.debugger.detach({ tabId });
+        sendResponse({ ok: true });
+      } catch (err) {
+        if (attached) { try { await chrome.debugger.detach({ tabId }); } catch (_) {} }
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
 });
