@@ -166,6 +166,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               person.mutual   ? `Amigos em comum: ${person.mutual}`: '',
               person.notes    ? `Obs: ${person.notes}`             : '',
               person.profileUrl ? `Perfil: ${person.profileUrl}`  : '',
+              'Origem: Redes sociais',
             ].filter(Boolean).join('\n'),
           }),
         });

@@ -612,12 +612,24 @@
   // ═══════════════════════════════════════════════
   // AGENDOR INTEGRATION
   // ═══════════════════════════════════════════════
-  // Nome bonito p/ o Agendor: "Nome Real (@usuario)"
+  // Nome bonito da PESSOA no Agendor: "Nome Real (@usuario)". O título do
+  // negócio usa agendorDealTitle (só o nome) — ver syncAgendor abaixo.
   function agendorName(lead){
     const nm=(lead.name||'').trim();
     const un=(lead.username||'').trim().replace(/^@/,'');
     if(nm && un && nm.toLowerCase()!==un.toLowerCase()) return `${nm} (@${un})`;
     if(nm) return nm;
+    if(un) return `@${un}`;
+    return 'Lead IGProspect';
+  }
+
+  // Título do NEGÓCIO: só o nome, sem "(@usuario)" — o @ já aparece embaixo,
+  // na pessoa vinculada (agendorName). Repetir os dois no título ficava
+  // poluído, ex.: "Otávio Corrêa (@otaviocorreai)".
+  function agendorDealTitle(lead){
+    const nm=(lead.name||'').trim();
+    if(nm) return nm;
+    const un=(lead.username||'').trim().replace(/^@/,'');
     if(un) return `@${un}`;
     return 'Lead IGProspect';
   }
@@ -637,6 +649,7 @@
     S.agendorStatus[lead.id]='syncing';
     renderBody();
     const displayName=agendorName(lead);
+    const dealTitle=agendorDealTitle(lead);
     chrome.runtime.sendMessage({
       type: 'agendor_create_person',
       token: S.agendorToken,
@@ -650,10 +663,10 @@
         profileUrl: lead.profileUrl||'',
       },
       deal: {
-        title: displayName,
+        title: dealTitle,
         dealStage: map.stageOrder,
         funnel: map.funnelId,
-        description: `Enviado pelo IGProspect (funil ${map.funnelName}).`,
+        description: `Origem: Redes sociais\nEnviado pelo IGProspect (funil ${map.funnelName}).`,
       }
     }, resp=>{
       if (chrome.runtime.lastError) { S.agendorStatus[lead.id]='error'; toast('Erro ao conectar com Agendor','err'); renderBody(); return; }

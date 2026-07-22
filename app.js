@@ -1797,13 +1797,25 @@ async function agendorRequest(path, method='GET', body=null){
 }
 function agendorCorsHint(m){ if(/Failed to fetch|NetworkError|CORS/i.test(m)) toast('Bloqueio de CORS — o Worker do proxy precisa estar publicado (config.js).','warn'); }
 
-// Nome bonito para o Agendor: "Nome Real (@usuario)". Evita repetir quando
-// o nome ainda está igual ao @ (dados antigos da extensão).
+// Nome bonito para a PESSOA no Agendor: "Nome Real (@usuario)". Evita repetir
+// quando o nome ainda está igual ao @ (dados antigos da extensão). Usado só
+// no cadastro da pessoa — o título do negócio usa agendorDealTitle (só nome).
 function agendorDisplayName(lead){
   const nm=(lead.name||'').trim();
   const un=(lead.username||'').trim().replace(/^@/,'');
   if(nm && un && nm.toLowerCase()!==un.toLowerCase()) return `${nm} (@${un})`;
   if(nm) return nm;
+  if(un) return `@${un}`;
+  return 'Lead IGProspect';
+}
+
+// Título do NEGÓCIO: só o nome, sem "(@usuario)" junto — o @ já aparece
+// embaixo, na pessoa vinculada (agendorDisplayName). Repetir os dois no
+// título ficava poluído, ex.: "Otávio Corrêa (@otaviocorreai)".
+function agendorDealTitle(lead){
+  const nm=(lead.name||'').trim();
+  if(nm) return nm;
+  const un=(lead.username||'').trim().replace(/^@/,'');
   if(un) return `@${un}`;
   return 'Lead IGProspect';
 }
@@ -1878,13 +1890,14 @@ async function sendLeadToAgendor(id, silent=false){
     if(lead.username) contact.instagram=lead.username;
     if(lead.email) contact.email=lead.email;
     const displayName=agendorDisplayName(lead);
-    const personPayload={ name: displayName, description:[ lead.niche?`Nicho: ${lead.niche}`:'', lead.notes?`Obs: ${lead.notes}`:'', 'Origem: IGProspect' ].filter(Boolean).join('\n') };
+    const dealTitle=agendorDealTitle(lead);
+    const personPayload={ name: displayName, description:[ lead.niche?`Nicho: ${lead.niche}`:'', lead.notes?`Obs: ${lead.notes}`:'', 'Origem: Redes sociais' ].filter(Boolean).join('\n') };
     if(Object.keys(contact).length) personPayload.contact=contact;
     const person=await agendorRequest('/people','POST',personPayload);
     const personId=(person&&person.data&&person.data.id)||(person&&person.id);
     let dealId=null, stageWarn=null;
     if(personId){
-      const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:displayName, dealStage:map.stageOrder, funnel:map.funnelId, description:`Enviado pelo IGProspect (funil ${map.funnelName}).` });
+      const deal=await agendorRequest(`/people/${personId}/deals`,'POST',{ title:dealTitle, dealStage:map.stageOrder, funnel:map.funnelId, description:`Origem: Redes sociais\nEnviado pelo IGProspect (funil ${map.funnelName}).` });
       dealId=(deal&&deal.data&&deal.data.id)||(deal&&deal.id)||null;
       // Reforço: um PUT logo depois garante a etapa certa mesmo se a API não
       // respeitar dealStage já no POST de criação. Se esse PUT falhar, não
