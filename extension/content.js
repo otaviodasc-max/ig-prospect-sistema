@@ -740,8 +740,12 @@
     const candidates=new Set();
     root.querySelectorAll('svg[aria-label]').forEach(svg=>{
       if(matches(svg.getAttribute('aria-label'))){
-        const btn=svg.closest('button, div[role="button"]');
-        if(btn) candidates.add(btn);
+        // Se não tem um <button>/div[role=button] ancestral (o Instagram nem
+        // sempre usa esse padrão), cai pro pai direto do ícone, ou o próprio
+        // ícone — eventos disparados nele ainda borbulham (bubbles:true) até
+        // qualquer listener que o Instagram tenha registrado mais acima.
+        const btn=svg.closest('button, div[role="button"]')||svg.parentElement||svg;
+        candidates.add(btn);
       }
     });
     root.querySelectorAll('button[aria-label], div[role="button"][aria-label]').forEach(el=>{
@@ -792,10 +796,13 @@
       try{
         const root=document.querySelector('div[role="main"]')||document.body;
         const ta=root.querySelector('textarea, [contenteditable="true"]');
+        const taTop=ta?Math.round(ta.getBoundingClientRect().top):null;
+        const matches=(label)=>{ const l=(label||'').toLowerCase(); return MIC_KEYWORDS.some(k=>l.includes(k)); };
         const items=[...root.querySelectorAll('[aria-label]')].map(el=>({
           tag: el.tagName, label: el.getAttribute('aria-label'), top: Math.round(el.getBoundingClientRect().top),
+          matched: matches(el.getAttribute('aria-label')),
         })).sort((a,b)=>a.top-b.top);
-        S.audioDebug={ taFound:!!ta, taTop: ta?Math.round(ta.getBoundingClientRect().top):null, items };
+        S.audioDebug={ taFound:!!ta, taTop, items };
       }catch(err){ S.audioDebug={ taFound:false, taTop:null, items:[], error:String(err) }; }
       S.tab='audios';
       render();
@@ -1259,19 +1266,21 @@
     const d=S.audioDebug;
     if(!d) return '';
     const rows=(d.items||[]).map(it=>`
-      <div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #222">
+      <div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid #222;${it.matched?'background:rgba(74,222,128,0.08)':''}">
         <span style="color:#555;width:40px;flex-shrink:0">${it.top}</span>
         <span style="color:#818cf8;width:64px;flex-shrink:0">${esc(it.tag)}</span>
-        <span style="color:#ccc;word-break:break-word">${esc(it.label)}</span>
+        <span style="color:${it.matched?'#4ade80':'#ccc'};word-break:break-word;font-weight:${it.matched?'700':'400'}">${it.matched?'✓ ':''}${esc(it.label)}</span>
       </div>
     `).join('');
+    const anyMatch=(d.items||[]).some(it=>it.matched);
     return `
       <div class="card" style="margin-top:14px;border-color:rgba(248,113,113,0.3)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <span style="font-weight:600;font-size:12px;color:#f87171">🔧 Diagnóstico — não achei o botão de áudio</span>
           <button class="btn-sm" data-a="clear-audio-debug">✕</button>
         </div>
-        <div style="font-size:11px;color:#555;margin-bottom:8px">Campo de mensagem encontrado: <b style="color:${d.taFound?'#4ade80':'#f87171'}">${d.taFound?`sim (topo ${d.taTop}px)`:'não'}</b></div>
+        <div style="font-size:11px;color:#555;margin-bottom:4px">Campo de mensagem encontrado: <b style="color:${d.taFound?'#4ade80':'#f87171'}">${d.taFound?`sim (topo ${d.taTop}px)`:'não'}</b></div>
+        <div style="font-size:11px;color:#555;margin-bottom:8px">Linha(s) em <span style="color:#4ade80;font-weight:600">verde</span> = bateu com a palavra-chave${anyMatch?', mas foi descartada (posição longe do campo de mensagem, ou sem elemento clicável perto)':' — nenhuma encontrada'}.</div>
         <div style="max-height:280px;overflow-y:auto;font-family:monospace;font-size:11px">
           ${rows||'<span style="color:#555">nenhum ícone com aria-label encontrado na conversa</span>'}
         </div>
