@@ -1255,11 +1255,13 @@
       // NENHUMA relação com as da outra. Cai no DEFAULT_STATUSES até o pull
       // da equipe nova confirmar as etapas de verdade dela.
       S.pipelineStages=null; S.agendorMap=null;
-      db.save({igp_org:S.org, igp_l:S.leads, igp_leads_pulled_at:0, igp_sync_times:[], igp_sync_paused:false, igp_stages:null, igp_agendor_map:null});
-      if(res.org.agendor_token){
-        S.agendorToken=res.org.agendor_token;
-        db.save({igp_tok:res.org.agendor_token});
-      }
+      // SEMPRE substitui o token pelo da equipe nova, mesmo vazio — antes só
+      // atualizava quando a equipe TINHA token, então conectar numa equipe
+      // sem Agendor mantinha o token cacheado de uma equipe anterior (ex.: de
+      // teste), e a extensão mostrava "Token configurado" com o campo vazio
+      // no sistema.
+      S.agendorToken=res.org.agendor_token||'';
+      db.save({igp_org:S.org, igp_l:S.leads, igp_leads_pulled_at:0, igp_sync_times:[], igp_sync_paused:false, igp_stages:null, igp_agendor_map:null, igp_tok:S.agendorToken});
       renderBody();
       toast(`✓ Conectado à equipe "${res.org.name}" — falta dizer quem é você`,'ok');
       chrome.runtime.sendMessage({ type:'resolve_org_members', code }, res2=>{
