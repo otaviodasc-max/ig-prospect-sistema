@@ -722,24 +722,33 @@
   //    também tem "voz"/"áudio" no aria-label) podia ser escolhido no lugar
   //    do microfone de gravar, e a extensão discava uma chamada em vez de
   //    gravar um áudio.
+  const MIC_KEYWORDS=['microfone','mic','gravar áudio','gravar audio','mensagem de voz','voice message','record audio','record voice','hold to record'];
   function findMicButton(){
     const root=document.querySelector('div[role="main"]')||document.body;
     const ta=root.querySelector('textarea, [contenteditable="true"]');
     if(!ta) return null;
     const taBox=ta.getBoundingClientRect();
-    const KEYWORDS=['microfone','mic','gravar áudio','gravar audio','mensagem de voz','voice message','record audio','record voice','hold to record'];
-    const svgs=root.querySelectorAll('svg[aria-label]');
+    const matches=(label)=>{ const l=(label||'').toLowerCase(); return MIC_KEYWORDS.some(k=>l.includes(k)); };
+    // O rótulo pode estar no <svg> do ícone OU direto no botão/div clicável
+    // que o envolve — o Instagram já usou os dois jeitos em versões
+    // diferentes, então checa as duas fontes em vez de assumir uma só.
+    const candidates=new Set();
+    root.querySelectorAll('svg[aria-label]').forEach(svg=>{
+      if(matches(svg.getAttribute('aria-label'))){
+        const btn=svg.closest('button, div[role="button"]');
+        if(btn) candidates.add(btn);
+      }
+    });
+    root.querySelectorAll('button[aria-label], div[role="button"][aria-label]').forEach(el=>{
+      if(matches(el.getAttribute('aria-label'))) candidates.add(el);
+    });
     let best=null, bestDist=Infinity;
-    for(const svg of svgs){
-      const label=(svg.getAttribute('aria-label')||'').toLowerCase();
-      if(!KEYWORDS.some(k=>label.includes(k))) continue;
-      const btn=svg.closest('button, div[role="button"]');
-      if(!btn) continue;
+    candidates.forEach(btn=>{
       const box=btn.getBoundingClientRect();
-      if(Math.abs(box.top-taBox.top)>120) continue; // fora da barra de composição
+      if(Math.abs(box.top-taBox.top)>120) return; // fora da barra de composição (ex.: ligação de voz no topo)
       const dist=Math.abs(box.left-taBox.right);
       if(dist<bestDist){ bestDist=dist; best=btn; }
-    }
+    });
     return best;
   }
 
@@ -770,14 +779,20 @@
     if(!onDirect()){ toast('Abra uma conversa do Direct primeiro','info'); return; }
     const btn=findMicButton();
     if(!btn){
-      toast('Não encontrei o botão de gravar áudio nesta conversa — pode ser que o Instagram tenha mudado o layout','err');
+      toast('Não encontrei o botão de gravar áudio nesta conversa — veja o console (F12) e me mande o que apareceu','err');
       // Diagnóstico pra ajustar findMicButton sem precisar de outra rodada às
-      // cegas: lista os aria-label de ícone disponíveis na conversa aberta.
+      // cegas: mostra se o campo de mensagem foi achado e TODOS os
+      // aria-label (de svg, botão ou div[role=button]) visíveis na conversa,
+      // com a posição vertical de cada um.
       try{
         const root=document.querySelector('div[role="main"]')||document.body;
-        const labels=[...root.querySelectorAll('svg[aria-label]')].map(s=>s.getAttribute('aria-label'));
-        console.warn('IGProspect: botão de áudio não encontrado. aria-labels disponíveis:', labels);
-      }catch(_){}
+        const ta=root.querySelector('textarea, [contenteditable="true"]');
+        console.warn('IGProspect diagnóstico áudio — campo de mensagem achado?', !!ta, ta?ta.getBoundingClientRect().top:null);
+        const all=[...root.querySelectorAll('[aria-label]')].map(el=>({
+          tag: el.tagName, label: el.getAttribute('aria-label'), top: Math.round(el.getBoundingClientRect().top),
+        }));
+        console.warn('IGProspect diagnóstico áudio — todos os aria-label na conversa:', all);
+      }catch(err){ console.warn('IGProspect: erro no diagnóstico', err); }
       return;
     }
 
