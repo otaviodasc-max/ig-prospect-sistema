@@ -155,7 +155,9 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 document.addEventListener('click',e=>{ if(e.target.classList&&e.target.classList.contains('modal-ov')) closeModal(); if(e.target.closest&&e.target.closest('.x')) closeModal(); });
 
 const dayStart = n => { const d=new Date(); d.setHours(0,0,0,0); if(n>0) d.setDate(d.getDate()-n+1); return d; };
-const inPeriod = (arr,period,key) => { key=key||'addedAt'; if(period==='all') return arr; const start=dayStart(parseInt(period)); return arr.filter(x=>x[key]&&new Date(x[key])>=start); };
+// `key` aceita tanto o nome de um campo (padrão 'addedAt') quanto uma
+// função (ex.: leadEffectiveDate) pra decidir qual data de cada item conta.
+const inPeriod = (arr,period,key) => { const get=typeof key==='function'?key:(x=>x[key||'addedAt']); if(period==='all') return arr; const start=dayStart(parseInt(period)); return arr.filter(x=>{ const v=get(x); return v&&new Date(v)>=start; }); };
 
 /* ---------- seleção em massa (Leads / Negociações / CRM / Ligações) ---------- */
 function selReset(){ S.sel.mode=false; S.sel.ids.clear(); }
@@ -649,14 +651,22 @@ function routeRender(){ ({dashboard:renderDashboard,goals:renderGoals,leads:rend
    DASHBOARD
 ===================================================================== */
 function renderDashboard(){
+  // `leads` = literalmente ADICIONADOS no período (addedAt) — usado só no
+  // gráfico "Leads Adicionados", nichos e "Adicionados Recentemente", que
+  // são sobre cadastro mesmo. `stageLeads` = quem tem alguma relação com o
+  // período pela data EFETIVA (leadEffectiveDate: cadastro enquanto tá em
+  // "Novo Lead", ou a data em que a etapa mudou, a partir daí) — é o que
+  // importa pros KPIs/funil/donut, senão marcar "chamado" hoje num lead de
+  // ontem não aparecia em "Hoje" (o card ficava preso na data de cadastro).
   const leads=inPeriod(S.leads,S.period);
+  const stageLeads=inPeriod(S.leads,S.period,leadEffectiveDate);
   // `c` = onde cada lead está AGORA (exclusivo, soma = total) — usado só no
   // donut. `cum` = funil de verdade (cumulativo: quem chegou em X passou
   // pelas etapas antes de X também) — usado nos KPIs e nas barras do funil.
-  const c=metrics(leads), total=leads.length, pct=n=>total?Math.round(n/total*100):0;
+  const c=metrics(stageLeads), total=stageLeads.length, pct=n=>total?Math.round(n/total*100):0;
   const KICO={ novo:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', chamado:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', respondeu:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', contato:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' };
   const sts=STS(), sm=SM(), sc=SC();
-  const cum=cumulativeStageCounts(leads, stagesOf(defaultPipeline()));
+  const cum=cumulativeStageCounts(stageLeads, stagesOf(defaultPipeline()));
   const kpis=[ {k:'novo',cls:'kk-n',lbl:'Total de Leads',val:total,p:null,sub:`${S.leads.length} no total`}, {k:'chamado',cls:'kk-c',lbl:'Chamados',val:cum.chamado,p:pct(cum.chamado),sub:'do total'}, {k:'respondeu',cls:'kk-r',lbl:'Responderam',val:cum.respondeu,p:cum.chamado?Math.round(cum.respondeu/cum.chamado*100):0,sub:'dos chamados'}, {k:'contato',cls:'kk-o',lbl:'Convertidos',val:cum.contato,p:pct(cum.contato),sub:'taxa de conv.'} ];
   const kpiHtml=kpis.map(x=>`<div class="kpi-card ${x.cls}"><div class="kpi-top"><div class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${KICO[x.k]}</svg></div></div><div class="kpi-lbl">${x.lbl}</div><div class="kpi-val" data-cnt="${x.val}">0</div><div class="kpi-sub">${x.p!=null?`<span class="kpi-pct">${x.p}%</span>`:''}${x.sub}</div></div>`).join('');
   const maxC=Math.max(...sts.map(s=>cum[s]||0),1);
