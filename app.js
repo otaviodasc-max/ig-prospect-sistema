@@ -23,7 +23,8 @@ const S = { session:null, profile:null, org:null, route:'dashboard', period:'all
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
   crmPipelineId:'', crmQ:'', dealQ:'', dealPipelineId:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
-  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'' };
+  relView:'pay', relWeekOffset:0, relMemberId:'', relWeeksBack:12, relQ:'',
+  relDashFrom:'', relDashTo:'', relDashPipelineId:'' };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
 // Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
@@ -45,6 +46,11 @@ function leadPipeline(l){ return pipelineById(l&&l.pipeline_id); }
 function stLabel(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].label)||st||'—'; }
 function stShort(l){ const st=(l&&l.status)||'novo'; const m=SM(leadPipeline(l)); return (m[st]&&m[st].short)||stLabel(l); }
 function stColor(l){ const st=(l&&l.status)||'novo'; return SC(leadPipeline(l))[st]||'#64748B'; }
+// Um lead "foi chamado" quando saiu da 1ª etapa do funil dele (ex.: "Novo Lead")
+// — usado pela opção de pagamento "leads chamados" (Metas), pra pagar só quem
+// o prospector efetivamente ligou/chamou, e não todo lead só cadastrado.
+function firstStageKey(p){ const sts=STS(p); return sts[0]||'novo'; }
+function leadWasCalled(l){ const first=firstStageKey(leadPipeline(l)); return ((l&&l.status)||first)!==first; }
 // Cada equipe cria a própria key ao editar etapas (ex.: "Enviou Contato" pode
 // ser 'contato' numa equipe e 'enviou_contato' noutra) — a key nunca é
 // confiável entre equipes, mas o LABEL visível é estável. Mesma lógica usada
@@ -644,12 +650,12 @@ function renderDashboard(){
     const unpaidRows=wp.unpaid.length?wp.unpaid.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.72rem;padding:5px 0;border-bottom:1px dashed var(--border)"><span style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⏳ Comissão da venda — <b>${esc(d.name)}</b>${d.closedAt?` <span style="color:var(--t3)">(${fmtDate(d.closedAt)})</span>`:''}</span><span style="color:#FCD34D;font-weight:700;white-space:nowrap">${fmtCurrency(d.value)}</span></div>`).join(''):'<div style="font-size:.72rem;color:var(--t3);padding:4px 0">Nenhuma comissão pendente.</div>';
     payCard=`<div class="card" style="padding:20px;border-left:3px solid #10B981;margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">
-        <div><div style="font-weight:800;font-size:1rem">💵 A pagar nesta semana</div><div style="font-size:.72rem;color:var(--t3)">semana ${wkLbl} · ${fmtCurrency(wp.dayRate)}/dia por ${wp.target} leads (${fmtCurrency(wp.perLead)}/lead)${wp.recipientId?` · só leads de <b style="color:var(--t2)">${esc(payRecipientName())}</b>`:''}</div></div>
+        <div><div style="font-weight:800;font-size:1rem">💵 A pagar nesta semana</div><div style="font-size:.72rem;color:var(--t3)">semana ${wkLbl} · ${fmtCurrency(wp.dayRate)}/dia por ${wp.target} leads ${wp.payBasis==='chamados'?'chamados':'seguidos'} (${fmtCurrency(wp.perLead)}/lead)${wp.recipientId?` · só leads de <b style="color:var(--t2)">${esc(payRecipientName())}</b>`:''}</div></div>
         <div style="text-align:right"><div id="dash-pay-total" data-cnt="${wp.total}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:2rem;line-height:1;background:linear-gradient(135deg,#10B981,#34D399);-webkit-background-clip:text;background-clip:text;color:transparent">${fmtCurrency(0)}</div><div style="font-size:.7rem;color:var(--t3)">total a pagar</div></div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
         <div style="background:var(--surf2);border-radius:9px;padding:12px 14px">
-          <div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${wp.prospectLeads} leads na semana</div>
+          <div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${wp.prospectLeads} leads ${wp.payBasis==='chamados'?'chamados':'seguidos'} na semana</div>
           <div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#6366F1">${fmtCurrency(wp.prospectPay)}</div>
         </div>
         <div style="background:var(--surf2);border-radius:9px;padding:12px 14px">
@@ -1351,7 +1357,7 @@ function delDeal(id){
 /* =====================================================================
    METAS (GOALS) — motivação da equipe (mensais, compartilhadas no espaço)
 ===================================================================== */
-function getGoals(){ const g=(S.org&&S.org.settings&&S.org.settings.goals)||{}; return { contacts:Number(g.contacts)||0, sales:Number(g.sales)||0, revenue:Number(g.revenue)||0, commission:Number(g.commission)||0, leadDailyMin:g.leadDailyMin!=null?Number(g.leadDailyMin):50, leadDailyMax:g.leadDailyMax!=null?Number(g.leadDailyMax):120, callsWeekly:Number(g.callsWeekly)||0, payDayRate:g.payDayRate!=null?Number(g.payDayRate):25, payTargetPerDay:g.payTargetPerDay!=null?Number(g.payTargetPerDay):50, commissionPct:g.commissionPct!=null?Number(g.commissionPct):0.1, payRecipientId:g.payRecipientId||'' }; }
+function getGoals(){ const g=(S.org&&S.org.settings&&S.org.settings.goals)||{}; return { contacts:Number(g.contacts)||0, sales:Number(g.sales)||0, revenue:Number(g.revenue)||0, commission:Number(g.commission)||0, leadDailyMin:g.leadDailyMin!=null?Number(g.leadDailyMin):50, leadDailyMax:g.leadDailyMax!=null?Number(g.leadDailyMax):120, callsWeekly:Number(g.callsWeekly)||0, payDayRate:g.payDayRate!=null?Number(g.payDayRate):25, payTargetPerDay:g.payTargetPerDay!=null?Number(g.payTargetPerDay):50, commissionPct:g.commissionPct!=null?Number(g.commissionPct):0.1, payRecipientId:g.payRecipientId||'', payBasis:g.payBasis==='chamados'?'chamados':'seguidos' }; }
 // Nome de quem está configurado pra receber o valor da prospecção (aba Configurações,
 // só o dono vê/edita) — quando setado, leads de outras pessoas (ex.: o dono usando a
 // extensão só pra cadastrar leads de terceiros) não entram na conta do pagamento.
@@ -1367,13 +1373,13 @@ function weeklyPay(){
   const inW=iso=>{ if(!iso)return false; const d=new Date(iso); return d>=ws&&d<we; };
   const dayRate=g.payDayRate||0, target=g.payTargetPerDay||0;
   const perLead = target>0 ? dayRate/target : 0;
-  const wkLeads=S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!rid||l.createdBy===rid));
+  const wkLeads=S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!rid||l.createdBy===rid) && (g.payBasis!=='chamados'||leadWasCalled(l)));
   const prospectLeads=wkLeads.length;
   const prospectPay=prospectLeads*perLead;
   const unpaid=(S.deals||[]).filter(d=>d.status===WON() && !d.commissionPaid && (!rid||d.createdBy===rid))
     .map(d=>({ name:d.leadName||d.leadUsername||d.cardType||'Venda', value:Number(d.commissionValue)||0, closedAt:d.closedAt }));
   const unpaidTotal=unpaid.reduce((s,d)=>s+d.value,0);
-  return { ws, we, dayRate, target, perLead, prospectLeads, prospectPay, unpaid, unpaidTotal, total:prospectPay+unpaidTotal, recipientId:rid };
+  return { ws, we, dayRate, target, perLead, prospectLeads, prospectPay, unpaid, unpaidTotal, total:prospectPay+unpaidTotal, recipientId:rid, payBasis:g.payBasis };
 }
 function monthRange(){ const n=new Date(); return { s:new Date(n.getFullYear(),n.getMonth(),1), e:new Date(n.getFullYear(),n.getMonth()+1,1) }; }
 // offset=0 → semana atual; offset=-1 → semana anterior; etc. (usado pela aba Relatórios p/ navegar semanas passadas)
@@ -1394,7 +1400,7 @@ function renderGoals(){
   const body = view==='week' ? goalsWeekly(g) : goalsMonthly(g);
   $('content').innerHTML=`
     <div class="tbl-controls">
-      <div style="flex:1"><div class="sec-title" style="margin:0">Metas</div><div class="sec-sub" style="margin:2px 0 0">${view==='week'?(MOD().features.weeklyPay?'Pagamento semanal da equipe — leads de prospecção e ligações efetivas.':'Atividade semanal — leads de prospecção e ligações efetivas.'):'Metas do mês — vendas, faturamento e comissão.'}${view==='week'&&g.payRecipientId?` <b style="color:var(--p)">· cálculo de pagamento considera só leads de ${esc(payRecipientName()||'—')}</b>`:''}</div></div>
+      <div style="flex:1"><div class="sec-title" style="margin:0">Metas</div><div class="sec-sub" style="margin:2px 0 0">${view==='week'?(MOD().features.weeklyPay?'Pagamento semanal da equipe — leads de prospecção e ligações efetivas.':'Atividade semanal — leads de prospecção e ligações efetivas.'):'Metas do mês — vendas, faturamento e comissão.'}${view==='week'&&MOD().features.weeklyPay?` <b style="color:var(--p)">· pagamento por ${g.payBasis==='chamados'?'leads chamados':'leads seguidos'}</b>`:''}${view==='week'&&g.payRecipientId?` <b style="color:var(--p)">· considera só leads de ${esc(payRecipientName()||'—')}</b>`:''}</div></div>
       ${toggle}
       <button class="btn btn-primary" id="goals-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Definir metas</button>
     </div>
@@ -1561,10 +1567,11 @@ function goalsForm(){
       <div style="display:${MOD().features.weeklyPay?'block':'none'}">
         <div style="font-size:.66rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 8px">Cálculo do pagamento (prospecção)</div>
         <div class="form-grid">
+          <div class="fld full"><label>Contar como</label><select id="gf-pay-basis"><option value="seguidos" ${g.payBasis==='seguidos'?'selected':''}>Leads seguidos (todo lead cadastrado)</option><option value="chamados" ${g.payBasis==='chamados'?'selected':''}>Leads chamados (só quem já foi chamado)</option></select></div>
           <div class="fld"><label>Valor por dia (R$)</label><input id="gf-pay-rate" type="text" inputmode="decimal" value="${numberToMoney(g.payDayRate)}" placeholder="25,00"></div>
           <div class="fld"><label>Leads/dia p/ esse valor</label><input id="gf-pay-target" type="number" min="1" value="${g.payTargetPerDay}" placeholder="50"></div>
         </div>
-        <div style="font-size:.68rem;color:var(--t3);margin-top:6px">Ex.: R$25/dia por 50 leads = R$0,50/lead. 120 leads num dia = R$60. O dashboard soma a semana e adiciona comissões de vendas ainda não pagas.</div>
+        <div style="font-size:.68rem;color:var(--t3);margin-top:6px">Ex.: R$25/dia por 50 leads = R$0,50/lead. 120 leads num dia = R$60. O dashboard soma a semana e adiciona comissões de vendas ainda não pagas. Em "Leads chamados", só entra na conta quem já saiu da etapa "Novo Lead" no funil.</div>
       </div>
       <div style="height:1px;background:var(--border);margin:14px 0"></div>
       <div style="font-size:.66rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Comissão padrão</div>
@@ -1585,7 +1592,7 @@ function goalsForm(){
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="gf-save">Salvar metas</button></div></div></div>`);
   maskMoneyInput($('gf-pay-rate')); maskMoneyInput($('gf-revenue')); maskMoneyInput($('gf-commission'));
   $('gf-save').onclick=async()=>{
-    const newGoals={ contacts:parseInt($('gf-contacts').value)||0, sales:parseInt($('gf-sales').value)||0, revenue:moneyToNumber($('gf-revenue').value)||0, commission:moneyToNumber($('gf-commission').value)||0, leadDailyMin:parseInt($('gf-leadmin').value)||0, leadDailyMax:parseInt($('gf-leadmax').value)||0, callsWeekly:parseInt($('gf-callsweek').value)||0, payDayRate:moneyToNumber($('gf-pay-rate').value)||0, payTargetPerDay:parseInt($('gf-pay-target').value)||50, commissionPct:parseFloat($('gf-commpct').value)||0.1 };
+    const newGoals={ contacts:parseInt($('gf-contacts').value)||0, sales:parseInt($('gf-sales').value)||0, revenue:moneyToNumber($('gf-revenue').value)||0, commission:moneyToNumber($('gf-commission').value)||0, leadDailyMin:parseInt($('gf-leadmin').value)||0, leadDailyMax:parseInt($('gf-leadmax').value)||0, callsWeekly:parseInt($('gf-callsweek').value)||0, payDayRate:moneyToNumber($('gf-pay-rate').value)||0, payTargetPerDay:parseInt($('gf-pay-target').value)||50, commissionPct:parseFloat($('gf-commpct').value)||0.1, payBasis:$('gf-pay-basis').value==='chamados'?'chamados':'seguidos' };
     const settings={ ...(S.org.settings||{}), goals:newGoals };
     $('gf-save').disabled=true;
     const{error}=await sb.from('orgs').update({ settings }).eq('id',S.org.id);
@@ -1603,6 +1610,7 @@ const REL_VIEWS = [
   { k:'pay',    label:'Pagamento semanal' },
   { k:'leads',  label:'Leads por semana' },
   { k:'calls',  label:'Ligações por semana' },
+  { k:'mensal', label:'Dashboard mensal' },
   { k:'vendas', label:'Relatório de vendas' },
 ];
 const isoDate = d => new Date(d).toISOString().slice(0,10);
@@ -1615,7 +1623,7 @@ function weekReport(ws, we, memberId){
   const inW = iso => { if(!iso) return false; const d=new Date(iso); return d>=ws && d<we; };
   const g=getGoals(); const dayRate=g.payDayRate||0, target=g.payTargetPerDay||0;
   const perLead = target>0 ? dayRate/target : 0;
-  const wkLeads = S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!memberId||l.createdBy===memberId));
+  const wkLeads = S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!memberId||l.createdBy===memberId) && (g.payBasis!=='chamados'||leadWasCalled(l)));
   const prospectLeads = wkLeads.length;
   const prospectPay = prospectLeads*perLead;
   const closedThisWeek = (S.deals||[]).filter(d=>d.status===WON() && inW(d.closedAt) && (!memberId||d.createdBy===memberId));
@@ -1623,7 +1631,7 @@ function weekReport(ws, we, memberId){
   const pending = closedThisWeek.filter(d=>!d.commissionPaid).map(d=>({ id:d.id, name:nameOf(d), value:Number(d.commissionValue)||0, closedAt:d.closedAt }));
   const paid = closedThisWeek.filter(d=>d.commissionPaid).map(d=>({ id:d.id, name:nameOf(d), value:Number(d.commissionValue)||0, paidAt:d.paidAt }));
   const pendingTotal = pending.reduce((s,d)=>s+d.value,0);
-  return { prospectLeads, prospectPay, pending, paid, pendingTotal, total:prospectPay+pendingTotal, dealIds:pending.map(d=>d.id) };
+  return { prospectLeads, prospectPay, pending, paid, pendingTotal, total:prospectPay+pendingTotal, dealIds:pending.map(d=>d.id), payBasis:g.payBasis };
 }
 
 function renderRelatorios(){
@@ -1639,7 +1647,7 @@ function renderRelatorios(){
     </div>
     <div id="rel-body"></div>`;
   document.querySelectorAll('[data-relv]').forEach(b=>b.onclick=()=>{ S.relView=b.dataset.relv; renderRelatorios(); });
-  ({ pay:renderRelPay, leads:()=>renderRelWeekly('leads'), calls:()=>renderRelWeekly('calls'), vendas:renderRelVendas }[S.relView]||renderRelPay)();
+  ({ pay:renderRelPay, leads:()=>renderRelWeekly('leads'), calls:()=>renderRelWeekly('calls'), mensal:renderRelDash, vendas:renderRelVendas }[S.relView]||renderRelPay)();
 }
 
 function renderRelPay(){
@@ -1666,7 +1674,7 @@ function renderRelPay(){
         ${memberSel}
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">
-        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${rep.prospectLeads} leads</div><div id="rp-prospect" data-cnt="${rep.prospectPay}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#6366F1">${fmtCurrency(0)}</div></div>
+        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${rep.prospectLeads} leads ${rep.payBasis==='chamados'?'chamados':'seguidos'}</div><div id="rp-prospect" data-cnt="${rep.prospectPay}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#6366F1">${fmtCurrency(0)}</div></div>
         <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Comissões pendentes</div><div id="rp-pending" data-cnt="${rep.pendingTotal}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#F59E0B">${fmtCurrency(0)}</div></div>
         <div style="background:var(--surf2);border-radius:9px;padding:12px 14px"><div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Total a receber</div><div id="rp-total" data-cnt="${rep.total}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;background:linear-gradient(135deg,#10B981,#34D399);-webkit-background-clip:text;background-clip:text;color:transparent">${fmtCurrency(0)}</div></div>
       </div>
@@ -1743,6 +1751,63 @@ function renderRelWeekly(kind){
       <button class="btn btn-outline btn-sm" id="rel-more" style="margin-top:14px">Carregar mais semanas</button>
     </div>`;
   $('rel-more').onclick=()=>{ S.relWeeksBack=weeksBack+12; renderRelWeekly(kind); };
+}
+
+// Dashboard mensal (ou de qualquer período customizado): leads por etapa do
+// funil escolhido (o principal, por padrão, ou outro que o dono tenha
+// criado), filtrados pela data em que entraram no funil (added_at). Como o
+// lead só guarda a ETAPA ATUAL (sem histórico de transição), o número por
+// etapa reflete "onde está hoje" cada lead que entrou no período — não
+// "quantos passaram por ali", já que não há uma tabela de histórico.
+function monthBoundsStr(offsetMonths=0){
+  const n=new Date();
+  const from=new Date(n.getFullYear(),n.getMonth()+offsetMonths,1);
+  const to=new Date(n.getFullYear(),n.getMonth()+offsetMonths+1,0);
+  return { from:isoDate(from), to:isoDate(to) };
+}
+function renderRelDash(){
+  if(!S.relDashFrom||!S.relDashTo){ const mb=monthBoundsStr(); S.relDashFrom=mb.from; S.relDashTo=mb.to; }
+  if(!S.relDashPipelineId || !S.pipelines.some(p=>p.id===S.relDashPipelineId)) S.relDashPipelineId=(defaultPipeline()&&defaultPipeline().id)||'';
+  const pipeline=pipelineById(S.relDashPipelineId);
+  const from=new Date(S.relDashFrom+'T00:00:00'), to=new Date(S.relDashTo+'T23:59:59.999');
+  const inRange = iso => { if(!iso) return false; const d=new Date(iso); return d>=from && d<=to; };
+  const leads=S.leads.filter(l=>(!pipeline||l.pipeline_id===pipeline.id) && inRange(l.addedAt));
+  const stages=stagesOf(pipeline);
+  const counts=Object.fromEntries(stages.map(s=>[s.key,0]));
+  const firstKey=(stages[0]&&stages[0].key)||'novo';
+  leads.forEach(l=>{ const st=l.status||firstKey; counts[st]=(counts[st]||0)+1; });
+  const total=leads.length;
+  const pctOf=n=>total?Math.round(n/total*100):0;
+  const maxC=Math.max(...stages.map(s=>counts[s.key]||0),1);
+  const funnelHtml=stages.map(s=>{ const n=counts[s.key]||0, w=Math.round(n/maxC*100); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${s.color}"></span>${esc(s.label)}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${s.color};opacity:.82"><span>${n>0?pctOf(n)+'%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
+  const plSel = S.pipelines.length>1 ? `<div class="fld"><label>Funil</label><select class="flt-sel" id="rd-pipeline">${S.pipelines.map(p=>`<option value="${esc(p.id)}" ${p.id===S.relDashPipelineId?'selected':''}>${esc(p.icon||'📋')} ${esc(p.name)}${p.is_default?' (principal)':''}</option>`).join('')}</select></div>` : '';
+  const fromLbl=fmtDateOnly(S.relDashFrom), toLbl=fmtDateOnly(S.relDashTo);
+  $('rel-body').innerHTML=`
+    <div class="card" style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="fld"><label>De</label><input type="date" id="rd-from" value="${esc(S.relDashFrom)}"></div>
+          <div class="fld"><label>Até</label><input type="date" id="rd-to" value="${esc(S.relDashTo)}"></div>
+          ${plSel}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-outline btn-sm" data-rdpre="month">Este mês</button>
+          <button class="btn btn-outline btn-sm" data-rdpre="lastmonth">Mês passado</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="card-title" style="margin:0">${pipeline?esc(pipeline.name):'Funil'} · ${fromLbl} a ${toLbl}</div>
+        <div style="font-size:.78rem;color:var(--t3)"><b style="color:var(--t1);font-size:1rem">${total}</b> lead${total===1?'':'s'} no período</div>
+      </div>
+      ${total?`<div class="funnel-wrap">${funnelHtml}</div>`:'<div class="empty-state"><div class="empty-title">Nenhum lead no período</div><div class="empty-sub">Ajuste as datas ou o funil selecionado acima.</div></div>'}
+    </div>`;
+  $('rd-from').onchange=e=>{ S.relDashFrom=e.target.value; renderRelDash(); };
+  $('rd-to').onchange=e=>{ S.relDashTo=e.target.value; renderRelDash(); };
+  const plSelEl=$('rd-pipeline'); if(plSelEl) plSelEl.onchange=e=>{ S.relDashPipelineId=e.target.value; renderRelDash(); };
+  document.querySelectorAll('[data-rdpre]').forEach(b=>b.onclick=()=>{
+    const mb=monthBoundsStr(b.dataset.rdpre==='lastmonth'?-1:0);
+    S.relDashFrom=mb.from; S.relDashTo=mb.to; renderRelDash();
+  });
 }
 
 // Relatório livre por venda/cliente (deals.report) — editável a qualquer momento.
