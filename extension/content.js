@@ -766,23 +766,32 @@
     // O rótulo pode estar no <svg> do ícone OU direto no botão/div clicável
     // que o envolve — o Instagram já usou os dois jeitos em versões
     // diferentes, então checa as duas fontes em vez de assumir uma só.
+    const hasSize=(el)=>{ const b=el.getBoundingClientRect(); return b.width>0 && b.height>0; };
+    // Prioriza um ancestral <button>/div[role=button] só se ele REALMENTE
+    // tem tamanho na tela — o React às vezes usa um wrapper com
+    // display:contents (só pra semântica/evento), que fica com
+    // getBoundingClientRect() zerado. Usar esse elemento pra calcular onde
+    // clicar (ver pressAndHold) faz o clique cair no canto (0,0) da
+    // página, nunca no ícone — o próprio <svg> é o que garantidamente tem
+    // as dimensões reais renderizadas.
+    const pickTarget=(svg)=>{
+      const btn=svg.closest('button, div[role="button"]');
+      if(btn && hasSize(btn)) return btn;
+      const parent=svg.parentElement;
+      if(parent && hasSize(parent)) return parent;
+      return svg;
+    };
     const candidates=new Set();
     root.querySelectorAll('svg[aria-label]').forEach(svg=>{
-      if(matches(svg.getAttribute('aria-label'))){
-        // Se não tem um <button>/div[role=button] ancestral (o Instagram nem
-        // sempre usa esse padrão), cai pro pai direto do ícone, ou o próprio
-        // ícone — eventos disparados nele ainda borbulham (bubbles:true) até
-        // qualquer listener que o Instagram tenha registrado mais acima.
-        const btn=svg.closest('button, div[role="button"]')||svg.parentElement||svg;
-        candidates.add(btn);
-      }
+      if(matches(svg.getAttribute('aria-label'))) candidates.add(pickTarget(svg));
     });
     root.querySelectorAll('button[aria-label], div[role="button"][aria-label]').forEach(el=>{
-      if(matches(el.getAttribute('aria-label'))) candidates.add(el);
+      if(matches(el.getAttribute('aria-label')) && hasSize(el)) candidates.add(el);
     });
     let best=null, bestDist=Infinity;
     candidates.forEach(btn=>{
       const box=btn.getBoundingClientRect();
+      if(box.width<=0 || box.height<=0) return; // elemento sem tamanho real na tela — nunca usa pra calcular clique
       if(Math.abs(box.top-taBox.top)>120) return; // fora da barra de composição (ex.: ligação de voz no topo)
       const dist=Math.abs(box.left-taBox.right);
       if(dist<bestDist){ bestDist=dist; best=btn; }
@@ -818,6 +827,10 @@
 
   function pressAndHold(btn, durationSec, done){
     const box=btn.getBoundingClientRect();
+    if(box.width<=0 || box.height<=0){
+      done(false, 'O botão de áudio encontrado não tem tamanho na tela (elemento invisível) — não dá pra calcular onde clicar');
+      return;
+    }
     const x=Math.round(box.left+box.width/2);
     const y=Math.round(box.top+box.height/2);
     showClickMarker(x,y);
