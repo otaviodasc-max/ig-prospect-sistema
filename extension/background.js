@@ -220,10 +220,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         await chrome.debugger.attach({ tabId }, '1.3');
         attached = true;
-        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
-        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
-        await new Promise(r => setTimeout(r, Math.max(0, holdMs || 0)));
-        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+        // pointerType:'mouse' explícito — sem isso, o Chrome pode gerar só o
+        // MouseEvent clássico (mousedown/mouseup) e pular o PointerEvent
+        // (pointerdown/pointerup) correspondente. Apps modernos como o
+        // Instagram costumam ligar o "pressionar e segurar" no PointerEvent,
+        // não no mouse legado — sintoma visto ao vivo: o hover (CSS puro,
+        // reage a qualquer mousemove) mudava, mas a gravação nunca começava,
+        // porque o handler de verdade (pointerdown) nunca disparava.
+        const opts = { x, y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' };
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { ...opts, type: 'mouseMoved', button: 'none', buttons: 0 });
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { ...opts, type: 'mousePressed' });
+        // Um "segurar" de verdade não fica 100% parado — um mousemove no
+        // meio, ainda com o botão marcado como pressionado, imita isso e
+        // evita que algum detector de "parado demais" descarte o gesto.
+        const halfway = Math.max(0, Math.round((holdMs || 0) / 2));
+        if (halfway > 100) {
+          await new Promise(r => setTimeout(r, halfway));
+          await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { ...opts, type: 'mouseMoved', x: x + 1, y: y + 1 });
+          await new Promise(r => setTimeout(r, Math.max(0, (holdMs || 0) - halfway)));
+        } else {
+          await new Promise(r => setTimeout(r, Math.max(0, holdMs || 0)));
+        }
+        await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', { ...opts, type: 'mouseReleased', buttons: 0 });
         await chrome.debugger.detach({ tabId });
         sendResponse({ ok: true });
       } catch (err) {
