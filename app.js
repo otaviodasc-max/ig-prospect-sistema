@@ -1898,29 +1898,32 @@ function renderRelDash(){
   // status virou "Enviou Contato", não no dia do cadastro do lead.
   const leads=S.leads.filter(l=>(!pipeline||l.pipeline_id===pipeline.id) && inRange(leadEffectiveDate(l)));
   const stages=stagesOf(pipeline);
-  // `counts` = onde cada lead está AGORA (exclusivo, soma = total) — só pro
-  // donut. `cumCounts` = funil de verdade (cumulativo): de 1000 leads novos
-  // no período, quantos CHEGARAM em cada etapa (chamado inclui quem já
-  // avançou pra respondeu/contato também, e assim por diante) — é isso que
-  // vai nos cards e nas barras do funil.
+  // `counts` = onde cada lead está AGORA (exclusivo, soma = total) — usado
+  // nos cards, nas barras do funil E no donut, todos com o MESMO número.
+  // Já usamos contagem cumulativa aqui antes (quem chegou em X conta em X e
+  // em toda etapa anterior), mas isso pressupõe que o lead passou por TODAS
+  // as etapas antes da atual em ordem — falso sempre que alguém arrasta um
+  // lead direto de uma etapa pra outra bem à frente no Kanban (o sistema só
+  // guarda a etapa atual, sem histórico de transição, então não há como
+  // saber por onde ele passou de verdade). Resultado: uma etapa como
+  // "Follow-Up" aparecia com um número alto mesmo com 0 leads parados nela
+  // hoje, só porque leads mais adiante (ex. "Enviou Contato") foram somados
+  // nela — e isso não batia com a aba Leads. Contagem exclusiva sempre bate.
   const firstKey=(stages[0]&&stages[0].key)||'novo';
   const counts=Object.fromEntries(stages.map(s=>[s.key,0]));
   leads.forEach(l=>{ const st=l.status||firstKey; counts[st]=(counts[st]||0)+1; });
-  const cumCounts=cumulativeStageCounts(leads, stages);
   const total=leads.length;
   const pctOf=n=>total?Math.round(n/total*100):0;
-  const maxC=Math.max(...stages.map(s=>cumCounts[s.key]||0),1);
-  const funnelHtml=stages.map((s,i)=>{ const n=cumCounts[s.key]||0, w=Math.round(n/maxC*100); const prev=i>0?(cumCounts[stages[i-1].key]||0):0; const stepPct=i===0?null:(prev?Math.round(n/prev*100):0); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${s.color}"></span>${esc(s.label)}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${s.color};opacity:.82"><span>${stepPct!=null?stepPct+'%':n>0?'100%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
+  const maxC=Math.max(...stages.map(s=>counts[s.key]||0),1);
+  const funnelHtml=stages.map(s=>{ const n=counts[s.key]||0, w=Math.round(n/maxC*100); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${s.color}"></span>${esc(s.label)}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${s.color};opacity:.82"><span>${n>0?pctOf(n)+'%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
   const plSel = S.pipelines.length>1 ? `<div class="fld"><label>Funil</label><select class="flt-sel" id="rd-pipeline">${S.pipelines.map(p=>`<option value="${esc(p.id)}" ${p.id===S.relDashPipelineId?'selected':''}>${esc(p.icon||'📋')} ${esc(p.name)}${p.is_default?' (principal)':''}</option>`).join('')}</select></div>` : '';
   const fromLbl=fmtDateOnly(S.relDashFrom), toLbl=fmtDateOnly(S.relDashTo);
 
   // Cartões de estatística — mesmo estilo dos cards de Metas mensais, mas
   // com 1 card por etapa REAL do funil escolhido (não fixo em 4, pois cada
-  // funil pode ter uma quantidade diferente de etapas). Contagem cumulativa,
-  // igual às barras do funil — ex.: "Total 1000 · Chamados 500 · Responderam
-  // 400 · Enviou Contato 30", nunca "500 novos + 500 chamados" como se
-  // fossem grupos que somam o total.
-  const statDefs=[ { label:'Total no período', n:total, color:'#6366F1' }, ...stages.map(s=>({ label:s.label, n:cumCounts[s.key]||0, color:s.color })) ];
+  // funil pode ter uma quantidade diferente de etapas). Mesma contagem
+  // exclusiva das barras do funil e do donut — sempre bate com a aba Leads.
+  const statDefs=[ { label:'Total no período', n:total, color:'#6366F1' }, ...stages.map(s=>({ label:s.label, n:counts[s.key]||0, color:s.color })) ];
   const statHtml=statDefs.map(x=>`<div class="card" style="padding:15px;border-left:3px solid ${x.color}">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,${x.color},${x.color}cc);box-shadow:0 4px 14px ${x.color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:.74rem">${total?pctOf(x.n)+'%':'—'}</div>
