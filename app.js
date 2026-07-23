@@ -489,7 +489,7 @@ const weeklyTrend = leads => { const now=new Date(); now.setHours(0,0,0,0); retu
 // Cada draw* devolve a geometria desenhada (pontos/barras/fatias) pra que os
 // bind*Hover logo abaixo saibam onde está o quê, sem redesenhar nada — só
 // leem a posição do mouse e mostram um tooltip flutuante (.chart-tip).
-function drawTimeline(data){ const cv=$('tl-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=155; cv.width=W;cv.height=H; const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
+function drawTimeline(data,cv){ cv=cv||$('tl-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||155; cv.width=W;cv.height=H; const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis'),NODE=cssVar('--chart-node');
   for(let i=0;i<=4;i++){ const y=P.t+(cH/4)*i; ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke(); ctx.fillStyle=AXIS;ctx.font='9.5px Inter';ctx.textAlign='right';ctx.fillText(Math.round(maxV-(maxV/4)*i),P.l-5,y+3); }
   const pts=data.map((d,i)=>({x:P.l+i*step,y:P.t+cH-(d.count/maxV)*cH})); const g=ctx.createLinearGradient(0,P.t,0,P.t+cH); g.addColorStop(0,'rgba(99,102,241,.3)');g.addColorStop(1,'rgba(99,102,241,0)');
@@ -499,19 +499,21 @@ function drawTimeline(data){ const cv=$('tl-chart'); if(!cv)return null; const c
   ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ if(i%2===0)ctx.fillText(d.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),pts[i].x,H-7); });
   return { pts, data };
 }
-function drawWeekly(data){ const cv=$('wk-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=125; cv.width=W;cv.height=H; const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
+function drawWeekly(data,cv){ cv=cv||$('wk-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||125; cv.width=W;cv.height=H; const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis');
   for(let i=0;i<=3;i++){const y=P.t+(cH/3)*i;ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();}
   data.forEach((d,i)=>{ const x=P.l+i*boff+(boff-bw)/2,bh=(d.count/maxV)*cH,y=P.t+cH-bh; if(d.count===0)return; const g=ctx.createLinearGradient(0,y,0,y+bh);g.addColorStop(0,'rgba(99,102,241,.88)');g.addColorStop(1,'rgba(99,102,241,.22)'); ctx.beginPath(); if(ctx.roundRect)ctx.roundRect(x,y,bw,bh,3);else ctx.rect(x,y,bw,bh); ctx.fillStyle=g;ctx.fill(); ctx.fillStyle=AXIS;ctx.font='8.5px Inter';ctx.textAlign='center';ctx.fillText(d.count,x+bw/2,y-4); });
   ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ ctx.fillText(d.label,P.l+i*boff+boff/2,H-7); });
   return { data, P, boff };
 }
-function drawDonut(c,total){ const cv=$('donut-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*2;cv.height=H*2;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(2,2);ctx.clearRect(0,0,W,H);
+// `stages` (opcional) recebe o mesmo formato de stagesOf() — {key,label,color}
+// — assim o mesmo desenho serve tanto pro funil padrão do Dashboard quanto
+// pra qualquer funil escolhido no Dashboard mensal (Relatórios).
+function drawDonut(counts,total,cv,stages){ cv=cv||$('donut-chart'); if(!cv)return null; stages=stages||stagesOf(defaultPipeline()); const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*2;cv.height=H*2;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(2,2);ctx.clearRect(0,0,W,H);
   if(total===0){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle=cssVar('--chart-grid');ctx.lineWidth=r-ir;ctx.stroke();return {cx,cy,r,ir,total:0,segs:[]};}
-  const sm=SM(), sc=SC(); const keys=['novo','chamado','respondeu','contato'];
-  const colors=keys.map(k=>sc[k]), vals=keys.map(k=>c[k]||0); let ang=-Math.PI/2; const segs=[];
+  const colors=stages.map(s=>s.color), vals=stages.map(s=>counts[s.key]||0); let ang=-Math.PI/2; const segs=[];
   vals.forEach((v,i)=>{ if(!v)return; const sw=(v/total)*Math.PI*2; ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,ang,ang+sw);ctx.closePath();ctx.fillStyle=colors[i];ctx.fill();
-    segs.push({ label:(sm[keys[i]]&&sm[keys[i]].label)||keys[i], color:colors[i], val:v, start:ang+Math.PI/2, end:ang+sw+Math.PI/2 }); ang+=sw; });
+    segs.push({ label:stages[i].label, color:colors[i], val:v, start:ang+Math.PI/2, end:ang+sw+Math.PI/2 }); ang+=sw; });
   ctx.beginPath();ctx.arc(cx,cy,ir,0,Math.PI*2);ctx.fillStyle=cssVar('--chart-node');ctx.fill();
   return { cx, cy, r, ir, total, segs };
 }
@@ -1765,6 +1767,18 @@ function monthBoundsStr(offsetMonths=0){
   const to=new Date(n.getFullYear(),n.getMonth()+offsetMonths+1,0);
   return { from:isoDate(from), to:isoDate(to) };
 }
+// Agrupa os leads do período em baldes diários (período curto) ou semanais
+// (período longo) pro mesmo gráfico de linha do Dashboard (drawTimeline).
+function periodBuckets(leads, from, to){
+  const days=Math.round((to-from)/86400000)+1;
+  const daily = days<=31;
+  const n = daily ? days : Math.ceil(days/7);
+  return Array.from({length:n},(_,i)=>{
+    const s=new Date(from); s.setDate(s.getDate()+i*(daily?1:7));
+    const e=new Date(s); e.setDate(e.getDate()+(daily?1:7));
+    return { date:s, count:leads.filter(l=>{ if(!l.addedAt) return false; const d=new Date(l.addedAt); return d>=s&&d<e; }).length };
+  });
+}
 function renderRelDash(){
   if(!S.relDashFrom||!S.relDashTo){ const mb=monthBoundsStr(); S.relDashFrom=mb.from; S.relDashTo=mb.to; }
   if(!S.relDashPipelineId || !S.pipelines.some(p=>p.id===S.relDashPipelineId)) S.relDashPipelineId=(defaultPipeline()&&defaultPipeline().id)||'';
@@ -1782,9 +1796,35 @@ function renderRelDash(){
   const funnelHtml=stages.map(s=>{ const n=counts[s.key]||0, w=Math.round(n/maxC*100); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${s.color}"></span>${esc(s.label)}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${s.color};opacity:.82"><span>${n>0?pctOf(n)+'%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
   const plSel = S.pipelines.length>1 ? `<div class="fld"><label>Funil</label><select class="flt-sel" id="rd-pipeline">${S.pipelines.map(p=>`<option value="${esc(p.id)}" ${p.id===S.relDashPipelineId?'selected':''}>${esc(p.icon||'📋')} ${esc(p.name)}${p.is_default?' (principal)':''}</option>`).join('')}</select></div>` : '';
   const fromLbl=fmtDateOnly(S.relDashFrom), toLbl=fmtDateOnly(S.relDashTo);
+
+  // Cartões de estatística — mesmo estilo dos cards de Metas mensais, mas
+  // com 1 card por etapa REAL do funil escolhido (não fixo em 4, pois cada
+  // funil pode ter uma quantidade diferente de etapas).
+  const statDefs=[ { label:'Total no período', n:total, color:'#6366F1' }, ...stages.map(s=>({ label:s.label, n:counts[s.key]||0, color:s.color })) ];
+  const statHtml=statDefs.map(x=>`<div class="card" style="padding:15px;border-left:3px solid ${x.color}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,${x.color},${x.color}cc);box-shadow:0 4px 14px ${x.color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:.74rem">${total?pctOf(x.n)+'%':'—'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.label)}</div>
+          <div class="rd-stat-val" data-cnt="${x.n}" style="font-family:'Plus Jakarta Sans',sans-serif;font-weight:800;font-size:1.4rem;line-height:1.25">0</div>
+        </div>
+      </div>
+    </div>`).join('');
+
+  // Gráfico de linha (diário se o período for curto, semanal se for longo)
+  // e donut de distribuição por etapa — os DOIS reaproveitam literalmente o
+  // mesmo desenho em canvas do Dashboard principal (drawTimeline/drawDonut),
+  // só que alimentados com os dados deste período/funil escolhido.
+  const days=Math.round((to-from)/86400000)+1;
+  const tlData=periodBuckets(leads, from, to);
+  const donutLgd=stages.map(s=>{ const n=counts[s.key]||0; return `<div class="donut-row"><div class="donut-dot" style="background:${s.color}"></div><span class="donut-lbl">${esc(s.label)}</span><span class="donut-val">${n}</span><span class="donut-pct">${pctOf(n)}%</span></div>`; }).join('');
+
+  const recent=[...leads].sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0)).slice(0,8);
+  const recentHtml=recent.length?recent.map(l=>`<div class="rl-item"><div class="avatar">${esc(ini(l.name||l.username))}</div><div class="rl-info"><div class="rl-name">${esc(l.name||l.username||'—')}</div><div class="rl-user">@${esc(l.username||'—')}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)}">${stShort(l)}</span><span class="rl-time">${timeAgo(l.addedAt)}</span></div></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);padding:12px 0">Nenhum lead no período.</div>';
+
   $('rel-body').innerHTML=`
-    <div class="card" style="padding:20px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px">
+    <div class="card" style="padding:20px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px">
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
           <div class="fld"><label>De</label><input type="date" id="rd-from" value="${esc(S.relDashFrom)}"></div>
           <div class="fld"><label>Até</label><input type="date" id="rd-to" value="${esc(S.relDashTo)}"></div>
@@ -1795,12 +1835,19 @@ function renderRelDash(){
           <button class="btn btn-outline btn-sm" data-rdpre="lastmonth">Mês passado</button>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div class="card-title" style="margin:0">${pipeline?esc(pipeline.name):'Funil'} · ${fromLbl} a ${toLbl}</div>
         <div style="font-size:.78rem;color:var(--t3)"><b style="color:var(--t1);font-size:1rem">${total}</b> lead${total===1?'':'s'} no período</div>
       </div>
-      ${total?`<div class="funnel-wrap">${funnelHtml}</div>`:'<div class="empty-state"><div class="empty-title">Nenhum lead no período</div><div class="empty-sub">Ajuste as datas ou o funil selecionado acima.</div></div>'}
-    </div>`;
+    </div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">${statHtml}</div>
+    <div class="dash-grid"><div class="dash-col">
+      <div class="card"><div class="card-hd"><div class="card-title">Leads no período · ${days<=31?'por dia':'por semana'}</div></div><div class="card-bd"><div class="chart-wrap" style="height:155px"><canvas id="rd-tl-chart"></canvas></div></div></div>
+      <div class="card"><div class="card-hd"><div class="card-title">Funil de ${pipeline?esc(pipeline.name):'Prospecção'}</div></div><div class="card-bd"><div class="funnel-wrap">${funnelHtml}</div></div></div>
+    </div><div class="dash-col">
+      <div class="card"><div class="card-hd"><div class="card-title">Distribuição por Etapa</div></div><div class="card-bd"><div class="donut-wrap"><div class="donut-cw"><canvas id="rd-donut-chart" width="110" height="110"></canvas><div class="donut-center"><div class="donut-cv">${total}</div><div class="donut-cl">Leads</div></div></div><div class="donut-legend">${donutLgd}</div></div></div></div>
+      <div class="card"><div class="card-hd"><div class="card-title">Leads do período</div></div><div class="card-bd" style="padding-top:6px">${recentHtml}</div></div>
+    </div></div>`;
   $('rd-from').onchange=e=>{ S.relDashFrom=e.target.value; renderRelDash(); };
   $('rd-to').onchange=e=>{ S.relDashTo=e.target.value; renderRelDash(); };
   const plSelEl=$('rd-pipeline'); if(plSelEl) plSelEl.onchange=e=>{ S.relDashPipelineId=e.target.value; renderRelDash(); };
@@ -1808,6 +1855,11 @@ function renderRelDash(){
     const mb=monthBoundsStr(b.dataset.rdpre==='lastmonth'?-1:0);
     S.relDashFrom=mb.from; S.relDashTo=mb.to; renderRelDash();
   });
+  requestAnimationFrame(()=>{
+    bindTimelineHover($('rd-tl-chart'), drawTimeline(tlData, $('rd-tl-chart')));
+    bindDonutHover($('rd-donut-chart'), drawDonut(counts, total, $('rd-donut-chart'), stages));
+  });
+  document.querySelectorAll('.rd-stat-val[data-cnt]').forEach(el=>animateCount(el,Number(el.dataset.cnt)));
 }
 
 // Relatório livre por venda/cliente (deals.report) — editável a qualquer momento.
