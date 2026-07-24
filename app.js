@@ -22,10 +22,11 @@ const S = { session:null, profile:null, org:null, route:'dashboard', period:'all
   members:[], weeklyPayments:[], features:null,
   lf:{ q:'', note:'', status:'', niche:'', pipeline:'', sort:'newest', page:1, ag:'' },
   cf:{ q:'', outcome:'', sort:'newest', page:1 },
-  crmPipelineId:'', crmQ:'', dealQ:'', dealPipelineId:'', goalsView:'week', _funnelStages:[], sel:{ mode:false, ids:new Set() },
+  crmPipelineId:'', crmQ:'', dealQ:'', dealPipelineId:'', _funnelStages:[], sel:{ mode:false, ids:new Set() },
   relView:'pay', relMemberId:'', relWeeksBack:12, relQ:'',
   relDashFrom:'', relDashTo:'', relDashPipelineId:'',
-  relPayFrom:'', relPayTo:'' };
+  relPayFrom:'', relPayTo:'',
+  goalsFrom:'', goalsTo:'', goalsMemberId:'' };
 const PAGE_SIZE = 25;
 // Resolve o módulo de profissão ativo na organização atual (ver modules.js).
 // Serve como PONTO DE PARTIDA ao criar uma org (backfill) e como fallback
@@ -517,7 +518,11 @@ const weeklyTrend = leads => { const now=new Date(); now.setHours(0,0,0,0); retu
 // Cada draw* devolve a geometria desenhada (pontos/barras/fatias) pra que os
 // bind*Hover logo abaixo saibam onde está o quê, sem redesenhar nada — só
 // leem a posição do mouse e mostram um tooltip flutuante (.chart-tip).
-function drawTimeline(data,cv){ cv=cv||$('tl-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||155; cv.width=W;cv.height=H; const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
+// Canvas em pixel-por-pixel (cv.width=W) fica borrado em tela retina/HiDPI —
+// o navegador desenha na resolução "de tela" mas escala pra cima igual uma
+// foto pequena esticada. Desenhar em W*dpr/H*dpr de verdade (e escalar o
+// contexto de volta) faz o traço sair nítido em qualquer densidade de tela.
+function drawTimeline(data,cv){ cv=cv||$('tl-chart'); if(!cv)return null; const dpr=window.devicePixelRatio||1; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||155; cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(dpr,dpr); const P={t:14,r:14,b:28,l:34},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),step=cW/((data.length-1)||1); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis'),NODE=cssVar('--chart-node');
   for(let i=0;i<=4;i++){ const y=P.t+(cH/4)*i; ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke(); ctx.fillStyle=AXIS;ctx.font='9.5px Inter';ctx.textAlign='right';ctx.fillText(Math.round(maxV-(maxV/4)*i),P.l-5,y+3); }
   const pts=data.map((d,i)=>({x:P.l+i*step,y:P.t+cH-(d.count/maxV)*cH})); const g=ctx.createLinearGradient(0,P.t,0,P.t+cH); g.addColorStop(0,'rgba(99,102,241,.3)');g.addColorStop(1,'rgba(99,102,241,0)');
@@ -527,7 +532,7 @@ function drawTimeline(data,cv){ cv=cv||$('tl-chart'); if(!cv)return null; const 
   ctx.fillStyle=AXIS;ctx.font='9px Inter';ctx.textAlign='center'; data.forEach((d,i)=>{ if(i%2===0)ctx.fillText(d.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}),pts[i].x,H-7); });
   return { pts, data };
 }
-function drawWeekly(data,cv){ cv=cv||$('wk-chart'); if(!cv)return null; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||125; cv.width=W;cv.height=H; const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
+function drawWeekly(data,cv){ cv=cv||$('wk-chart'); if(!cv)return null; const dpr=window.devicePixelRatio||1; const ctx=cv.getContext('2d'); const W=cv.parentElement.offsetWidth||500,H=cv.parentElement.offsetHeight||125; cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(dpr,dpr); const P={t:10,r:12,b:26,l:28},cW=W-P.l-P.r,cH=H-P.t-P.b,maxV=Math.max(...data.map(d=>d.count),1),boff=cW/data.length,bw=Math.max(Math.floor(boff*.62),4); ctx.clearRect(0,0,W,H);
   const GRID=cssVar('--chart-grid'),AXIS=cssVar('--chart-axis');
   for(let i=0;i<=3;i++){const y=P.t+(cH/3)*i;ctx.strokeStyle=GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();}
   data.forEach((d,i)=>{ const x=P.l+i*boff+(boff-bw)/2,bh=(d.count/maxV)*cH,y=P.t+cH-bh; if(d.count===0)return; const g=ctx.createLinearGradient(0,y,0,y+bh);g.addColorStop(0,'rgba(99,102,241,.88)');g.addColorStop(1,'rgba(99,102,241,.22)'); ctx.beginPath(); if(ctx.roundRect)ctx.roundRect(x,y,bw,bh,3);else ctx.rect(x,y,bw,bh); ctx.fillStyle=g;ctx.fill(); ctx.fillStyle=AXIS;ctx.font='8.5px Inter';ctx.textAlign='center';ctx.fillText(d.count,x+bw/2,y-4); });
@@ -537,7 +542,7 @@ function drawWeekly(data,cv){ cv=cv||$('wk-chart'); if(!cv)return null; const ct
 // `stages` (opcional) recebe o mesmo formato de stagesOf() — {key,label,color}
 // — assim o mesmo desenho serve tanto pro funil padrão do Dashboard quanto
 // pra qualquer funil escolhido no Dashboard mensal (Relatórios).
-function drawDonut(counts,total,cv,stages){ cv=cv||$('donut-chart'); if(!cv)return null; stages=stages||stagesOf(defaultPipeline()); const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*2;cv.height=H*2;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(2,2);ctx.clearRect(0,0,W,H);
+function drawDonut(counts,total,cv,stages){ cv=cv||$('donut-chart'); if(!cv)return null; stages=stages||stagesOf(defaultPipeline()); const dpr=window.devicePixelRatio||1; const ctx=cv.getContext('2d'); const W=110,H=110,cx=55,cy=55,r=44,ir=29; cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+'px';cv.style.height=H+'px'; ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
   if(total===0){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.strokeStyle=cssVar('--chart-grid');ctx.lineWidth=r-ir;ctx.stroke();return {cx,cy,r,ir,total:0,segs:[]};}
   const colors=stages.map(s=>s.color), vals=stages.map(s=>counts[s.key]||0); let ang=-Math.PI/2; const segs=[];
   vals.forEach((v,i)=>{ if(!v)return; const sw=(v/total)*Math.PI*2; ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,r,ang,ang+sw);ctx.closePath();ctx.fillStyle=colors[i];ctx.fill();
@@ -1416,116 +1421,91 @@ function motivMsg(pct,target){
   return ['✨ Cada contato conta — comece agora!','#8B5CF6'];
 }
 
+// Metas — uma tela só, com período livre (De/Até) em vez do antigo par de
+// abas Semanal/Mensal travadas na semana/mês corrente. Junta atividade de
+// prospecção (leads/dia, ligações efetivas) com o funil de vendas (contatos,
+// vendas, faturamento, comissão) no mesmo período escolhido, e dá pra filtrar
+// por quem prospecta — pra cada pessoa acompanhar a própria meta, não só a
+// da equipe inteira.
 function renderGoals(){
   const g=getGoals();
-  const view=S.goalsView||'week';
-  const toggle=`<div class="period-tabs"><div class="period-tab${view==='week'?' active':''}" data-gview="week">Semanal</div><div class="period-tab${view==='month'?' active':''}" data-gview="month">Mensal</div></div>`;
-  const body = view==='week' ? goalsWeekly(g) : goalsMonthly(g);
-  $('content').innerHTML=`
-    <div class="tbl-controls">
-      <div style="flex:1"><div class="sec-title" style="margin:0">Metas</div><div class="sec-sub" style="margin:2px 0 0">${view==='week'?'Atividade semanal — leads de prospecção e ligações efetivas.':'Metas do mês — vendas, faturamento e comissão.'}</div></div>
-      ${toggle}
-      <button class="btn btn-primary" id="goals-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Definir metas</button>
-    </div>
-    ${body}`;
-  $('goals-edit').onclick=()=>goalsForm();
-  document.querySelectorAll('[data-gview]').forEach(b=>b.onclick=()=>{ S.goalsView=b.dataset.gview; renderGoals(); });
-  $('gw-leads-cnt')&&animateCount($('gw-leads-cnt'),Number($('gw-leads-cnt').dataset.cnt));
-  $('gw-calls-cnt')&&animateCount($('gw-calls-cnt'),Number($('gw-calls-cnt').dataset.cnt));
-  document.querySelectorAll('[id^="gm-cnt-"]').forEach(el=>animateCount(el,Number(el.dataset.cnt),el.dataset.money==='1'?fmtCurrency:undefined));
-}
+  if(!S.goalsFrom||!S.goalsTo){ const { ws,we }=weekRange(); S.goalsFrom=isoDate(ws); S.goalsTo=isoDate(new Date(we-1)); }
+  if(S.goalsMemberId && !S.members.some(m=>m.id===S.goalsMemberId)) S.goalsMemberId='';
+  const mid=S.goalsMemberId;
 
-function goalsWeekly(g){
-  const { ws,we }=weekRange();
-  const rid=g.payRecipientId;
-  const inW=iso=>{ if(!iso)return false; const d=new Date(iso); return d>=ws&&d<we; };
-  const wkLeads=S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inW(l.addedAt) && (!rid||l.createdBy===rid));
-  const totalLeads=wkLeads.length;
-  const dayNames=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
-  const perDay=Array.from({length:7},(_,i)=>{ const ds=new Date(ws); ds.setDate(ds.getDate()+i); const de=new Date(ds); de.setDate(de.getDate()+1); return wkLeads.filter(l=>{ const t=new Date(l.addedAt); return t>=ds&&t<de; }).length; });
-  const min=g.leadDailyMin||50, max=g.leadDailyMax||120;
-  const todayIdx=(new Date().getDay()+6)%7;
-  const barMax=Math.max(max,...perDay,1);
-  const hitMin=perDay.filter(c=>c>=min).length;
-  const bars=perDay.map((c,i)=>{
-    const col=c>=max?'#F59E0B':c>=min?'#10B981':c>0?'#EF4444':'var(--surf4)';
-    const h=Math.max(Math.round(c/barMax*100),c>0?6:2);
-    const today=i===todayIdx;
-    const status=c>=max?'acima do máximo 🔥':c>=min?'dentro da meta ✓':c>0?'abaixo do mínimo':'sem leads ainda';
-    return `<div data-tip="${esc(dayNames[i])}: ${c} lead(s) — ${esc(status)}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:default">
-      <div style="font-size:.66rem;font-weight:700;color:${c>0?'var(--t2)':'var(--t3)'}">${c}</div>
-      <div style="width:100%;max-width:34px;height:92px;background:var(--surf2);border-radius:6px;display:flex;align-items:flex-end;overflow:hidden">
-        <div class="gw-bar-fill" style="width:100%;height:${h}%;background:${col};border-radius:6px;transition:height .4s,filter .15s"></div>
-      </div>
-      <div style="font-size:.62rem;color:${today?'var(--p)':'var(--t3)'};font-weight:${today?'700':'500'}">${dayNames[i]}</div>
-    </div>`;
-  }).join('');
-  const effCalls=S.calls.filter(c=>inW(c.at) && (c.outcome||'nao_atendeu')!=='nao_atendeu');
-  const totalEff=effCalls.length;
-  const callsGoal=g.callsWeekly||0;
-  const callPct=callsGoal>0?Math.min(100,Math.round(totalEff/callsGoal*100)):0;
-  const wkLabel=`${ws.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} a ${new Date(we-1).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}`;
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px">
-    <div class="card" style="padding:18px;border-left:3px solid #6366F1">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-        <div><div style="font-weight:700;font-size:.95rem">📸 Leads do Instagram</div><div style="font-size:.72rem;color:var(--t3)">semana ${wkLabel} · pagamento por leads</div></div>
-        <div style="text-align:right"><div id="gw-leads-cnt" data-cnt="${totalLeads}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.6rem;line-height:1;color:#6366F1">0</div><div style="font-size:.7rem;color:var(--t3)">na semana</div></div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:flex-end">${bars}</div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-        <span style="font-size:.72rem;color:var(--t2)"><b style="color:#10B981">${hitMin}/7</b> dias bateram o mínimo</span>
-        <span style="font-size:.7rem;color:var(--t3)">meta/dia: <b style="color:#10B981">${min}</b>–<b style="color:#F59E0B">${max}</b></span>
-      </div>
-      <div style="display:flex;gap:13px;margin-top:9px;font-size:.63rem;color:var(--t3);flex-wrap:wrap">
-        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#EF4444;vertical-align:middle"></i> abaixo de ${min}</span>
-        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10B981;vertical-align:middle"></i> ${min} ou mais</span>
-        <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#F59E0B;vertical-align:middle"></i> ${max} ou mais</span>
-      </div>
-    </div>
-    <div class="card" style="padding:18px;border-left:3px solid #F59E0B">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-        <div><div style="font-weight:700;font-size:.95rem">📞 Ligações efetivas</div><div style="font-size:.72rem;color:var(--t3)">atendidas (com ou sem interesse)</div></div>
-        <div style="text-align:right"><div id="gw-calls-cnt" data-cnt="${totalEff}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.6rem;line-height:1;color:#F59E0B">0</div><div style="font-size:.7rem;color:var(--t3)">${callsGoal>0?'de '+callsGoal:'na semana'}</div></div>
-      </div>
-      ${callsGoal>0?`<div style="background:var(--surf2);border-radius:20px;height:12px;overflow:hidden"><div style="width:${callPct}%;height:100%;background:linear-gradient(90deg,#F59E0B,#F59E0Bbb);border-radius:20px;transition:width .5s"></div></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px"><span style="font-size:.76rem;font-weight:600;color:${callPct>=100?'#10B981':'#F59E0B'}">${callPct>=100?'🎉 Meta semanal batida!':callPct>=50?'💪 Mais da metade!':'🚀 Bora ligar!'}</span><span style="font-size:.82rem;font-weight:800;color:#F59E0B">${callPct}%</span></div>`
-      :`<div style="font-size:.74rem;color:var(--t3);padding:6px 0">Defina uma meta semanal de ligações em <b>Definir metas</b> para acompanhar o progresso.</div>`}
-      <div style="font-size:.66rem;color:var(--t3);margin-top:11px;padding-top:9px;border-top:1px solid var(--border)">Efetiva = a pessoa atendeu (interessado, retornar, sem interesse ou fechou). "Não atendeu" não conta.</div>
-    </div>
-  </div>`;
-}
+  const from=new Date(S.goalsFrom+'T00:00:00');
+  const to=new Date(S.goalsTo+'T23:59:59.999');
+  const toExcl=new Date(S.goalsTo+'T00:00:00'); toExcl.setDate(toExcl.getDate()+1);
+  const inRange = iso => { if(!iso) return false; const d=new Date(iso); return d>=from && d<toExcl; };
+  const days=Math.max(1,Math.round((toExcl-from)/86400000));
 
-function goalsMonthly(g){
-  const { s,e }=monthRange();
-  const inM=iso=>{ if(!iso)return false; const d=new Date(iso); return d>=s&&d<e; };
-  const contatosM = S.deals.filter(d=>inM(d.createdAt)).length;
-  const vendidosM = S.deals.filter(d=>d.status===WON()&&inM(d.closedAt));
-  const vendasM   = vendidosM.length;
-  const faturM    = vendidosM.reduce((a,d)=>a+(Number(d.cardValue)||0),0);
-  const commM     = vendidosM.reduce((a,d)=>a+(Number(d.commissionValue)||0),0);
-  const now=new Date(); const last=new Date(now.getFullYear(),now.getMonth()+1,0);
-  const daysLeft=Math.max(1,last.getDate()-now.getDate()+1);
-  const monthLabel=now.toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  // ---- Leads (esforço de prospecção) ----
+  const rangeLeads=S.leads.filter(l=>(l.tipo||'comum')!=='empresario' && inRange(l.addedAt) && (!mid||l.createdBy===mid));
+  const totalLeads=rangeLeads.length;
+  const min=g.leadDailyMin||0, max=g.leadDailyMax||0;
+  const targetMin=min*days, targetMax=max*days;
+  const showBars=days<=31;
+  const dayNames=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let hitMin=0, barsHtml='';
+  if(showBars){
+    const perDay=Array.from({length:days},(_,i)=>{ const ds=new Date(from); ds.setDate(ds.getDate()+i); const de=new Date(ds); de.setDate(de.getDate()+1); return rangeLeads.filter(l=>{ const t=new Date(l.addedAt); return t>=ds&&t<de; }).length; });
+    hitMin = min>0 ? perDay.filter(c=>c>=min).length : 0;
+    const barMax=Math.max(max,...perDay,1);
+    const today=new Date(); today.setHours(0,0,0,0);
+    barsHtml=perDay.map((c,i)=>{
+      const ds=new Date(from); ds.setDate(ds.getDate()+i);
+      const col = max>0&&c>=max?'#F59E0B':min>0&&c>=min?'#10B981':c>0?'#EF4444':'var(--surf4)';
+      const h=Math.max(Math.round(c/barMax*100),c>0?6:2);
+      const isToday=ds.getTime()===today.getTime();
+      const status = max>0&&c>=max?'acima do máximo 🔥':min>0&&c>=min?'dentro da meta ✓':c>0?'abaixo do mínimo':'sem leads ainda';
+      return `<div data-tip="${esc(fmtDateOnly(isoDate(ds)))}: ${c} lead(s)${min||max?` — ${esc(status)}`:''}" style="flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:default">
+        <div style="font-size:.62rem;font-weight:700;color:${c>0?'var(--t2)':'var(--t3)'}">${c}</div>
+        <div style="width:100%;max-width:34px;height:92px;background:var(--surf2);border-radius:6px;display:flex;align-items:flex-end;overflow:hidden">
+          <div class="gw-bar-fill" style="width:100%;height:${h}%;background:${col};border-radius:6px;transition:height .4s,filter .15s"></div>
+        </div>
+        <div style="font-size:.58rem;color:${isToday?'var(--p)':'var(--t3)'};font-weight:${isToday?'700':'500'}">${days<=14?dayNames[ds.getDay()]:ds.getDate()}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---- Ligações efetivas ----
+  const rangeCalls=S.calls.filter(c=>inRange(c.at) && (!mid||c.createdBy===mid));
+  const totalEff=rangeCalls.filter(c=>(c.outcome||'nao_atendeu')!=='nao_atendeu').length;
+  const callsGoalWeekly=g.callsWeekly||0;
+  const callsTarget=callsGoalWeekly>0?Math.max(1,Math.round(callsGoalWeekly*days/7)):0;
+  const callPct=callsTarget>0?Math.min(100,Math.round(totalEff/callsTarget*100)):0;
+
+  // ---- Funil de vendas (contatos, vendas, faturamento, comissão) ----
+  const contatosP=S.deals.filter(d=>inRange(d.createdAt) && (!mid||d.createdBy===mid)).length;
+  const vendidosP=S.deals.filter(d=>d.status===WON()&&inRange(d.closedAt) && (!mid||d.createdBy===mid));
+  const vendasP=vendidosP.length;
+  const faturP=vendidosP.reduce((a,d)=>a+(Number(d.cardValue)||0),0);
+  const commP=vendidosP.reduce((a,d)=>a+(Number(d.commissionValue)||0),0);
+
+  const today0=new Date(); today0.setHours(0,0,0,0);
+  const periodEndDate=new Date(S.goalsTo+'T00:00:00');
+  const daysLeft = periodEndDate>=today0 ? Math.max(1,Math.round((periodEndDate-today0)/86400000)+1) : 0;
 
   const defs=[
-    { key:'contacts',   label:'Contatos conquistados', hint:'leads que enviaram o contato', color:'#6366F1', color2:'#8B5CF6', money:false, cur:contatosM, target:g.contacts,
+    { key:'contacts',   label:'Contatos conquistados', hint:'leads que enviaram o contato', color:'#6366F1', color2:'#8B5CF6', money:false, cur:contatosP, target:g.contacts,
       icon:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/>' },
-    { key:'sales',      label:'Vendas fechadas', hint:'negociações marcadas como vendido', color:'#10B981', color2:'#34D399', money:false, cur:vendasM, target:g.sales,
+    { key:'sales',      label:'Vendas fechadas', hint:'negociações marcadas como vendido', color:'#10B981', color2:'#34D399', money:false, cur:vendasP, target:g.sales,
       icon:'<polyline points="20 6 9 17 4 12"/>' },
-    { key:'revenue',    label:'Faturamento (cartas vendidas)', hint:'soma do valor das cartas vendidas', color:'#F59E0B', color2:'#FBBF24', money:true, cur:faturM, target:g.revenue,
+    { key:'revenue',    label:'Faturamento (cartas vendidas)', hint:'soma do valor das cartas vendidas', color:'#F59E0B', color2:'#FBBF24', money:true, cur:faturP, target:g.revenue,
       icon:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>' },
-    { key:'commission', label:'Comissão acumulada', hint:'comissões das vendas do mês', color:'#8B5CF6', color2:'#C084FC', money:true, cur:commM, target:g.commission,
+    { key:'commission', label:'Comissão acumulada', hint:'comissões das vendas do período', color:'#8B5CF6', color2:'#C084FC', money:true, cur:commP, target:g.commission,
       icon:'<path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4z"/>' },
   ];
 
   const defined=defs.filter(d=>d.target>0).length;
   const done=defs.filter(d=>d.target>0&&d.cur>=d.target).length;
   const heroIcon = defined&&done===defined ? '🏆' : done>0 ? '🔥' : '🎯';
-  const heroTitle = defined ? `${done} de ${defined} metas batidas` : 'Defina as metas do mês';
-  const heroSub = !defined ? 'Clique em "Definir metas" para começar a acompanhar o progresso da equipe.'
-    : done===defined ? 'Todas as metas concluídas! Equipe imparável. 🚀'
-    : done>0 ? `Faltam ${defined-done} para completar o mês. Vocês conseguem!`
-    : `Restam ${daysLeft} dias no mês. Foco total no resultado!`;
+  const heroTitle = defined ? `${done} de ${defined} metas batidas` : 'Defina as metas da equipe';
+  const heroSub = !defined ? 'Clique em "Definir metas" para começar a acompanhar o progresso.'
+    : done===defined ? 'Todas as metas concluídas nesse período! Equipe imparável. 🚀'
+    : done>0 ? `Faltam ${defined-done} para completar o período. Vocês conseguem!`
+    : daysLeft>0 ? `Restam ${daysLeft} dia${daysLeft===1?'':'s'} no período. Foco total no resultado!`
+    : 'Período encerrado — confira o resultado final abaixo.';
 
   const hero=`<div class="card" style="padding:20px;margin-bottom:16px;background:linear-gradient(135deg,rgba(99,102,241,.16),rgba(16,185,129,.10));border:1px solid rgba(99,102,241,.28)">
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
@@ -1544,10 +1524,11 @@ function goalsMonthly(g){
     const tgtTxt=d.money?fmtCurrency(target):fmtNum(target);
     const remTxt=d.money?fmtCurrency(remaining):fmtNum(remaining);
     const [msg,mc]=motivMsg(pct,target);
-    const perDay=(!d.money&&target>0&&remaining>0)?Math.ceil(remaining/daysLeft):0;
+    const perDay=(!d.money&&target>0&&remaining>0&&daysLeft>0)?Math.ceil(remaining/daysLeft):0;
     let foot='';
-    if(target>0&&remaining>0) foot=`<div style="font-size:.73rem;color:var(--t2);margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">Falta <b style="color:var(--t1)">${remTxt}</b> para a meta${perDay?` · ~<b style="color:${d.color}">${perDay}</b>/dia nos ${daysLeft} dias restantes`:''}</div>`;
-    else if(target>0) foot=`<div style="font-size:.73rem;color:#10B981;margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">✓ Meta concluída este mês!</div>`;
+    if(target>0&&remaining>0&&daysLeft>0) foot=`<div style="font-size:.73rem;color:var(--t2);margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">Falta <b style="color:var(--t1)">${remTxt}</b> para a meta${perDay?` · ~<b style="color:${d.color}">${perDay}</b>/dia nos ${daysLeft} dia${daysLeft===1?'':'s'} restantes`:''}</div>`;
+    else if(target>0&&remaining>0) foot=`<div style="font-size:.73rem;color:var(--t2);margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">Falta <b style="color:var(--t1)">${remTxt}</b> para a meta — período já encerrado</div>`;
+    else if(target>0) foot=`<div style="font-size:.73rem;color:#10B981;margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.06)">✓ Meta concluída nesse período!</div>`;
     return `<div class="card" style="padding:18px;margin-bottom:14px;border-left:3px solid ${d.color}">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
         <div style="width:42px;height:42px;border-radius:11px;background:linear-gradient(135deg,${d.color},${d.color2});box-shadow:0 4px 14px ${d.color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d.icon}</svg></div>
@@ -1571,7 +1552,80 @@ function goalsMonthly(g){
     </div>`;
   }).join('');
 
-  return `<div style="font-size:.72rem;color:var(--t3);text-transform:capitalize;margin-bottom:10px">Mês de ${monthLabel} · zeram a cada mês</div>${hero}<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">${cards}</div>`;
+  const fromLbl=fmtDateOnly(S.goalsFrom), toLbl=fmtDateOnly(S.goalsTo);
+  const memberSel = S.members.length>1
+    ? `<div class="fld"><label>Quem</label><select class="flt-sel" id="gp-member"><option value="">Toda a equipe</option>${S.members.map(m=>`<option value="${esc(m.id)}" ${m.id===mid?'selected':''}>${esc(memberLabel(m))}</option>`).join('')}</select></div>`
+    : '';
+
+  const leadsCard=`<div class="card" style="padding:18px;border-left:3px solid #6366F1;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+      <div><div style="font-weight:700;font-size:.95rem">📸 Leads prospectados</div><div style="font-size:.72rem;color:var(--t3)">${fromLbl} a ${toLbl}${min||max?` · meta do período: ${min?fmtNum(targetMin):'—'}–${max?fmtNum(targetMax):'—'}`:''}</div></div>
+      <div style="text-align:right"><div id="gw-leads-cnt" data-cnt="${totalLeads}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.7rem;line-height:1;color:#6366F1">0</div><div style="font-size:.7rem;color:var(--t3)">${days} dia${days===1?'':'s'}</div></div>
+    </div>
+    ${showBars?`<div style="display:flex;gap:${days>14?'3px':'6px'};align-items:flex-end;overflow-x:auto;padding-bottom:2px">${barsHtml}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;gap:6px">
+      ${min>0?`<span style="font-size:.72rem;color:var(--t2)"><b style="color:#10B981">${hitMin}/${days}</b> dias bateram o mínimo</span>`:'<span></span>'}
+      <span style="font-size:.7rem;color:var(--t3)">meta/dia: <b style="color:#10B981">${min||'—'}</b>–<b style="color:#F59E0B">${max||'—'}</b></span>
+    </div>
+    <div style="display:flex;gap:13px;margin-top:9px;font-size:.63rem;color:var(--t3);flex-wrap:wrap">
+      <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#EF4444;vertical-align:middle"></i> abaixo de ${min||'—'}</span>
+      <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10B981;vertical-align:middle"></i> ${min||'—'} ou mais</span>
+      <span><i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#F59E0B;vertical-align:middle"></i> ${max||'—'} ou mais</span>
+    </div>`
+    :`<div class="chart-wrap" style="height:150px"><canvas id="gp-tl-chart"></canvas></div><div style="font-size:.68rem;color:var(--t3);margin-top:8px">Período com mais de 31 dias — mostrando leads por semana.</div>`}
+  </div>`;
+
+  const callsCard=`<div class="card" style="padding:18px;border-left:3px solid #F59E0B;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div><div style="font-weight:700;font-size:.95rem">📞 Ligações efetivas</div><div style="font-size:.72rem;color:var(--t3)">atendidas (com ou sem interesse)</div></div>
+      <div style="text-align:right"><div id="gw-calls-cnt" data-cnt="${totalEff}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.7rem;line-height:1;color:#F59E0B">0</div><div style="font-size:.7rem;color:var(--t3)">${callsTarget>0?'de '+callsTarget:'no período'}</div></div>
+    </div>
+    ${callsTarget>0?`<div style="background:var(--surf2);border-radius:20px;height:12px;overflow:hidden"><div style="width:${callPct}%;height:100%;background:linear-gradient(90deg,#F59E0B,#F59E0Bbb);border-radius:20px;transition:width .5s"></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px"><span style="font-size:.76rem;font-weight:600;color:${callPct>=100?'#10B981':'#F59E0B'}">${callPct>=100?'🎉 Meta batida!':callPct>=50?'💪 Mais da metade!':'🚀 Bora ligar!'}</span><span style="font-size:.82rem;font-weight:800;color:#F59E0B">${callPct}%</span></div>
+    <div style="font-size:.66rem;color:var(--t3);margin-top:8px">Meta semanal de ${callsGoalWeekly} escalada pros ${days} dia${days===1?'':'s'} do período.</div>`
+    :`<div style="font-size:.74rem;color:var(--t3);padding:6px 0">Defina uma meta semanal de ligações em <b>Definir metas</b> para acompanhar o progresso.</div>`}
+    <div style="font-size:.66rem;color:var(--t3);margin-top:11px;padding-top:9px;border-top:1px solid var(--border)">Efetiva = a pessoa atendeu (interessado, retornar, sem interesse ou fechou). "Não atendeu" não conta.</div>
+  </div>`;
+
+  $('content').innerHTML=`
+    <div class="tbl-controls">
+      <div style="flex:1"><div class="sec-title" style="margin:0">Metas</div><div class="sec-sub" style="margin:2px 0 0">Escolha o período e acompanhe tudo o que importa pra bater a meta.</div></div>
+      <button class="btn btn-primary" id="goals-edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>Definir metas</button>
+    </div>
+    <div class="tbl-controls">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="fld"><label>De</label><input type="date" id="gp-from" value="${esc(S.goalsFrom)}"></div>
+        <div class="fld"><label>Até</label><input type="date" id="gp-to" value="${esc(S.goalsTo)}"></div>
+        ${memberSel}
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-outline btn-sm" data-gppre="week">Esta semana</button>
+        <button class="btn btn-outline btn-sm" data-gppre="month">Este mês</button>
+      </div>
+    </div>
+    ${hero}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:4px">${leadsCard}${callsCard}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">${cards}</div>`;
+
+  $('goals-edit').onclick=()=>goalsForm();
+  $('gp-from').onchange=e=>{ S.goalsFrom=e.target.value; renderGoals(); };
+  $('gp-to').onchange=e=>{ S.goalsTo=e.target.value; renderGoals(); };
+  const msel=$('gp-member'); if(msel) msel.onchange=e=>{ S.goalsMemberId=e.target.value; renderGoals(); };
+  document.querySelectorAll('[data-gppre]').forEach(b=>b.onclick=()=>{
+    if(b.dataset.gppre==='week'){ const { ws,we }=weekRange(); S.goalsFrom=isoDate(ws); S.goalsTo=isoDate(new Date(we-1)); }
+    else { const { s,e }=monthRange(); S.goalsFrom=isoDate(s); S.goalsTo=isoDate(new Date(e.getTime()-86400000)); }
+    renderGoals();
+  });
+  if(!showBars){
+    requestAnimationFrame(()=>{
+      const tl=$('gp-tl-chart'); if(!tl) return;
+      const wkData=periodBuckets(rangeLeads, from, to, l=>l.addedAt).map(b=>({ label:b.date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}), count:b.count }));
+      bindWeeklyHover(tl, drawWeekly(wkData, tl));
+    });
+  }
+  $('gw-leads-cnt')&&animateCount($('gw-leads-cnt'),Number($('gw-leads-cnt').dataset.cnt));
+  $('gw-calls-cnt')&&animateCount($('gw-calls-cnt'),Number($('gw-calls-cnt').dataset.cnt));
+  document.querySelectorAll('[id^="gm-cnt-"]').forEach(el=>animateCount(el,Number(el.dataset.cnt),el.dataset.money==='1'?fmtCurrency:undefined));
 }
 
 function goalsForm(){
@@ -1633,7 +1687,6 @@ const REL_VIEWS = [
   { k:'pay',    label:'Pagamento por período' },
   { k:'leads',  label:'Leads por semana' },
   { k:'calls',  label:'Ligações por semana' },
-  { k:'mensal', label:'Dashboard mensal' },
   { k:'vendas', label:'Relatório de vendas' },
 ];
 const isoDate = d => new Date(d).toISOString().slice(0,10);
@@ -1671,7 +1724,7 @@ function renderRelatorios(){
     </div>
     <div id="rel-body"></div>`;
   document.querySelectorAll('[data-relv]').forEach(b=>b.onclick=()=>{ S.relView=b.dataset.relv; renderRelatorios(); });
-  ({ pay:renderRelPay, leads:()=>renderRelWeekly('leads'), calls:()=>renderRelWeekly('calls'), mensal:renderRelDash, vendas:renderRelVendas }[S.relView]||renderRelPay)();
+  ({ pay:renderRelPay, leads:()=>renderRelWeekly('leads'), calls:()=>renderRelWeekly('calls'), vendas:renderRelVendas }[S.relView]||renderRelPay)();
 }
 
 // Grade de estatísticas + lista de comissões — compartilhado entre a aba
