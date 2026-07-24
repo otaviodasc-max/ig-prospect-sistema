@@ -8,7 +8,15 @@
 -- As "observações pré-prontas" por etapa (org_pipelines.stages[].notes,
 -- ver app.js notePresetsModal) já vêm de graça: org_pipeline_by_join_code
 -- devolve a coluna `stages` inteira, que já inclui esse campo.
--- Execute no Supabase SQL Editor, APÓS supabase-extension-agendor-sync.sql.
+--
+-- notes usa `coalesce(p_notes, notes)`, NÃO `coalesce(nullif(p_notes,''),
+-- notes)` como status/phone/name — porque apagar a observação até ficar
+-- vazia PRECISA gravar string vazia (limpar de verdade), enquanto os outros
+-- campos nunca têm motivo legítimo de virar "". Só um p_notes NULO (a
+-- extensão não mandou nada, ex.: mudança só de status) deixa o texto como
+-- estava; p_notes='' é "a pessoa apagou tudo", e tem que valer.
+-- Execute no Supabase SQL Editor (idempotente, pode rodar de novo por cima
+-- de uma execução anterior desta mesma migração).
 -- =====================================================================
 
 drop function if exists public.org_leads_by_join_code(text, int, int);
@@ -48,7 +56,7 @@ begin
     status            = coalesce(nullif(p_status,''), status),
     phone             = coalesce(nullif(p_phone,''), phone),
     name              = coalesce(nullif(p_name,''), name),
-    notes             = coalesce(nullif(p_notes,''), notes),
+    notes             = coalesce(p_notes, notes),
     agendor_person_id = coalesce(nullif(p_agendor_person_id,''), agendor_person_id),
     agendor_deal_id   = coalesce(nullif(p_agendor_deal_id,''), agendor_deal_id),
     agendor_funnel    = coalesce(nullif(p_agendor_funnel,''), agendor_funnel),

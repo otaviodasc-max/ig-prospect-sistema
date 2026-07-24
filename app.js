@@ -640,7 +640,10 @@ function renderShell(){
     $('bn-more').onclick=()=>$('app').classList.toggle('sb-open');
   }
   const ti=TAB_INFO_GET()[S.route]||['','']; $('tb-title').textContent=ti[0]; $('tb-sub').textContent=ti[1];
-  const showPeriod = ['dashboard','leads','calls','deals'].includes(S.route);
+  // 'dashboard' fica de fora: agora usa o Dashboard mensal (De/Até + funil
+  // escolhível), que tem seu próprio seletor de período — os pills
+  // Tudo/30d/7d/Hoje aqui em cima não se aplicam mais a essa aba.
+  const showPeriod = ['leads','calls','deals'].includes(S.route);
   $('period-tabs').style.display = showPeriod?'flex':'none';
   $('period-tabs').querySelectorAll('.period-tab').forEach(t=>{ t.classList.toggle('active',t.dataset.period===S.period); t.onclick=()=>{ S.period=t.dataset.period; S.lf.page=1; S.cf.page=1; renderShell(); }; });
   routeRender();
@@ -650,90 +653,17 @@ function routeRender(){ ({dashboard:renderDashboard,goals:renderGoals,leads:rend
 /* =====================================================================
    DASHBOARD
 ===================================================================== */
+// A aba Dashboard usa o mesmo "Dashboard mensal" de Relatórios (renderRelDash)
+// — período customizável (De/Até) e funil escolhível, com uma coluna de
+// estatística por ETAPA REAL do funil (não fixo em 4 etapas como o dashboard
+// antigo), então bate com qualquer conjunto de etapas que a equipe cadastrar.
 function renderDashboard(){
-  // `leads` = literalmente ADICIONADOS no período (addedAt) — usado só no
-  // gráfico "Leads Adicionados", nichos e "Adicionados Recentemente", que
-  // são sobre cadastro mesmo. `stageLeads` = quem tem alguma relação com o
-  // período pela data EFETIVA (leadEffectiveDate: cadastro enquanto tá em
-  // "Novo Lead", ou a data em que a etapa mudou, a partir daí) — é o que
-  // importa pros KPIs/funil/donut, senão marcar "chamado" hoje num lead de
-  // ontem não aparecia em "Hoje" (o card ficava preso na data de cadastro).
-  const leads=inPeriod(S.leads,S.period);
-  const stageLeads=inPeriod(S.leads,S.period,leadEffectiveDate);
-  // `c` = onde cada lead está AGORA (exclusivo, soma = total) — usado só no
-  // donut. `cum` = funil de verdade (cumulativo: quem chegou em X passou
-  // pelas etapas antes de X também) — usado nos KPIs e nas barras do funil.
-  const c=metrics(stageLeads), total=stageLeads.length, pct=n=>total?Math.round(n/total*100):0;
-  const KICO={ novo:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', chamado:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>', respondeu:'<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>', contato:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' };
-  const sts=STS(), sm=SM(), sc=SC();
-  const cum=cumulativeStageCounts(stageLeads, stagesOf(defaultPipeline()));
-  // As chaves das etapas (ex. "chamado") não são fixas — mudam pra algo tipo
-  // "chamado_a1b2" sempre que alguém edita/recria as etapas do funil na
-  // equipe (ver comentário em cumulativeStageCounts). Por isso os 3 cards
-  // abaixo não podem ler cum.chamado/cum.respondeu/cum.contato direto (dá
-  // NaN se a chave mudou) — lêem pela POSIÇÃO da etapa, igual o funil de
-  // baixo (STS()) já faz: 2ª etapa = "chamado", 3ª = "respondeu", última =
-  // "contato"/convertido.
-  const chamadoN=cum[sts[1]]||0, respondeuN=cum[sts[2]]||0, contatoN=cum[sts[sts.length-1]]||0;
-  const kpis=[ {k:'novo',cls:'kk-n',lbl:'Total de Leads',val:total,p:null,sub:`${S.leads.length} no total`}, {k:'chamado',cls:'kk-c',lbl:'Chamados',val:chamadoN,p:pct(chamadoN),sub:'do total'}, {k:'respondeu',cls:'kk-r',lbl:'Responderam',val:respondeuN,p:chamadoN?Math.round(respondeuN/chamadoN*100):0,sub:'dos chamados'}, {k:'contato',cls:'kk-o',lbl:'Convertidos',val:contatoN,p:pct(contatoN),sub:'taxa de conv.'} ];
-  const kpiHtml=kpis.map(x=>`<div class="kpi-card ${x.cls}"><div class="kpi-top"><div class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${KICO[x.k]}</svg></div></div><div class="kpi-lbl">${x.lbl}</div><div class="kpi-val" data-cnt="${x.val}">0</div><div class="kpi-sub">${x.p!=null?`<span class="kpi-pct">${x.p}%</span>`:''}${x.sub}</div></div>`).join('');
-  const maxC=Math.max(...sts.map(s=>cum[s]||0),1);
-  const funnelHtml=sts.map((s,i)=>{ const n=cum[s]||0,w=Math.round(n/maxC*100); const prev=i>0?(cum[sts[i-1]]||0):0; const stepPct=i===0?null:(prev?Math.round(n/prev*100):0); return `<div class="funnel-row"><div class="funnel-lbl"><span class="sdot" style="background:${sc[s]}"></span>${sm[s].label}</div><div class="funnel-track"><div class="funnel-fill" style="width:${w}%;background:${sc[s]};opacity:.82"><span>${stepPct!=null?stepPct+'%':n>0?'100%':''}</span></div></div><div class="funnel-cnt">${n}</div></div>`; }).join('');
-  const niches=topNiches(leads),maxN=(niches[0]&&niches[0][1])||1;
-  const nichesHtml=niches.length?niches.map(([nm,n],i)=>`<div class="niche-row"><span class="niche-rank">${i+1}</span><span class="niche-nm" title="${esc(nm)}">${esc(nm)}</span><div class="niche-track"><div class="niche-fill" style="width:${Math.round(n/maxN*100)}%"></div></div><span class="niche-cnt">${n}</span></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);text-align:center;padding:14px 0">Sem dados de nicho</div>';
-  const recent=[...leads].sort((a,b)=>new Date(b.addedAt||0)-new Date(a.addedAt||0)).slice(0,6);
-  const recentHtml=recent.length?recent.map(l=>`<div class="rl-item"><div class="avatar">${esc(ini(l.name||l.username))}</div><div class="rl-info"><div class="rl-name">${esc(l.name||l.username||'—')}</div><div class="rl-user">@${esc(l.username||'—')}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)}">${stShort(l)}</span><span class="rl-time">${timeAgo(l.addedAt)}</span></div></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);padding:12px 0">Nenhum lead no período.</div>';
-  const donutLgd=sts.map(s=>{ const n=c[s]||0; return `<div class="donut-row"><div class="donut-dot" style="background:${sc[s]}"></div><span class="donut-lbl">${sm[s].label}</span><span class="donut-val">${n}</span><span class="donut-pct">${pct(n)}%</span></div>`; }).join('');
-  const callsP=inPeriod(S.calls,S.period,'at'), cm=callMetrics(callsP);
-  const callOut=CALL_OUT(), callLbl=COM(), callClr=CC();
-  const callsCard=`<div class="card"><div class="card-hd"><div class="card-title">Ligações</div><span class="text-link" style="font-size:.69rem" id="see-calls">Ver todas →</span></div><div class="card-bd"><div style="display:flex;align-items:baseline;gap:8px;margin-bottom:11px"><span style="font-family:'Plus Jakarta Sans';font-size:1.9rem;font-weight:800;line-height:1">${callsP.length}</span><span style="font-size:.7rem;color:var(--t3)">no período</span></div><div style="display:flex;flex-direction:column;gap:7px">${callOut.map(o=>cm[o]?`<div class="donut-row"><div class="donut-dot" style="background:${callClr[o]}"></div><span class="donut-lbl">${callLbl[o]}</span><span class="donut-val">${cm[o]}</span></div>`:'').join('')||'<div style="font-size:.72rem;color:var(--t3)">Nenhuma ligação no período.</div>'}</div></div></div>`;
-
   if(S.leads.length===0){
     $('content').innerHTML=`<div class="card" style="padding:28px;text-align:center"><div class="empty-ico" style="margin:0 auto 14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="empty-title">Bem-vindo, ${esc(S.profile&&S.profile.name||'')}!</div><div class="empty-sub" style="margin-bottom:14px">Você está no espaço <b>${esc(S.org&&S.org.name||'')}</b>. Cadastre seu primeiro lead para ver os gráficos.</div><button class="btn btn-primary" id="wb-add">Cadastrar primeiro lead</button></div>`;
     $('wb-add').onclick=()=>{ S.route='leads'; renderShell(); setTimeout(()=>leadForm(),50); };
     return;
   }
-  let payCard='';
-  if(MOD().features.weeklyPay){
-    const wp=weeklyPay();
-    const wkLbl=`${wp.ws.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} a ${new Date(wp.we-1).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}`;
-    const unpaidRows=wp.unpaid.length?wp.unpaid.map(d=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:.72rem;padding:5px 0;border-bottom:1px dashed var(--border)"><span style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">⏳ Comissão da venda — <b>${esc(d.name)}</b>${d.closedAt?` <span style="color:var(--t3)">(${fmtDate(d.closedAt)})</span>`:''}</span><span style="color:#FCD34D;font-weight:700;white-space:nowrap">${fmtCurrency(d.value)}</span></div>`).join(''):'<div style="font-size:.72rem;color:var(--t3);padding:4px 0">Nenhuma comissão pendente.</div>';
-    payCard=`<div class="card" style="padding:20px;border-left:3px solid #10B981;margin-bottom:18px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px">
-        <div><div style="font-weight:800;font-size:1rem">💵 A pagar nesta semana</div><div style="font-size:.72rem;color:var(--t3)">semana ${wkLbl} · ${fmtCurrency(wp.dayRate)}/dia por ${wp.target} leads ${wp.payBasis==='chamados'?'chamados':'seguidos'} (${fmtCurrency(wp.perLead)}/lead)${wp.recipientId?` · só leads de <b style="color:var(--t2)">${esc(payRecipientName())}</b>`:''}</div></div>
-        <div style="text-align:right"><div id="dash-pay-total" data-cnt="${wp.total}" style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:2rem;line-height:1;background:linear-gradient(135deg,#10B981,#34D399);-webkit-background-clip:text;background-clip:text;color:transparent">${fmtCurrency(0)}</div><div style="font-size:.7rem;color:var(--t3)">total a pagar</div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
-        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px">
-          <div style="font-size:.72rem;color:var(--t3);margin-bottom:3px">Prospecção · ${wp.prospectLeads} leads ${wp.payBasis==='chamados'?'chamados':'seguidos'} na semana</div>
-          <div style="font-family:'Plus Jakarta Sans';font-weight:800;font-size:1.3rem;color:#6366F1">${fmtCurrency(wp.prospectPay)}</div>
-        </div>
-        <div style="background:var(--surf2);border-radius:9px;padding:12px 14px">
-          <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px">Comissões não pagas · ${fmtCurrency(wp.unpaidTotal)}</div>
-          ${unpaidRows}
-        </div>
-      </div>
-    </div>`;
-  }
-  $('content').innerHTML=`<div class="kpi-grid">${kpiHtml}</div>${payCard}<div class="dash-grid"><div class="dash-col">
-    <div class="card"><div class="card-hd"><div class="card-title">Leads Adicionados · últimos 14 dias</div></div><div class="card-bd"><div class="chart-wrap" style="height:155px"><canvas id="tl-chart"></canvas></div></div></div>
-    <div class="card"><div class="card-hd"><div class="card-title">Funil de Prospecção</div></div><div class="card-bd"><div class="funnel-wrap">${funnelHtml}</div></div></div>
-    <div class="card"><div class="card-hd"><div class="card-title">Tendência Semanal · 8 semanas</div></div><div class="card-bd"><div class="chart-wrap" style="height:125px"><canvas id="wk-chart"></canvas></div></div></div>
-  </div><div class="dash-col">
-    <div class="card"><div class="card-hd"><div class="card-title">Distribuição de Status</div></div><div class="card-bd"><div class="donut-wrap"><div class="donut-cw"><canvas id="donut-chart" width="110" height="110"></canvas><div class="donut-center"><div class="donut-cv">${total}</div><div class="donut-cl">Leads</div></div></div><div class="donut-legend">${donutLgd}</div></div></div></div>
-    <div class="card"><div class="card-hd"><div class="card-title">Top Nichos</div></div><div class="card-bd"><div class="niche-list">${nichesHtml}</div></div></div>
-    <div class="card"><div class="card-hd"><div class="card-title">Adicionados Recentemente</div><span class="text-link" style="font-size:.69rem" id="see-all">Ver todos →</span></div><div class="card-bd" style="padding-top:6px">${recentHtml}</div></div>
-    ${callsCard}
-  </div></div>`;
-  $('see-all')&&($('see-all').onclick=()=>{ S.route='leads'; renderShell(); });
-  $('see-calls')&&($('see-calls').onclick=()=>{ S.route='calls'; renderShell(); });
-  requestAnimationFrame(()=>{
-    bindTimelineHover($('tl-chart'), drawTimeline(timeline14(leads)));
-    bindWeeklyHover($('wk-chart'), drawWeekly(weeklyTrend(leads)));
-    bindDonutHover($('donut-chart'), drawDonut(c,total));
-  });
-  document.querySelectorAll('.kpi-val[data-cnt]').forEach(el=>animateCount(el,Number(el.dataset.cnt)));
-  $('dash-pay-total')&&animateCount($('dash-pay-total'),Number($('dash-pay-total').dataset.cnt),fmtCurrency);
+  renderRelDash('content');
 }
 
 /* =====================================================================
@@ -1925,7 +1855,10 @@ function periodBuckets(leads, from, to, dateOf){
     return { date:s, count:leads.filter(l=>{ const iso=dateOf(l); if(!iso) return false; const d=new Date(iso); return d>=s&&d<e; }).length };
   });
 }
-function renderRelDash(){
+// targetId: onde desenhar — 'rel-body' (dentro de Relatórios) por padrão, ou
+// 'content' quando chamado como a aba Dashboard (ver renderDashboard).
+function renderRelDash(targetId){
+  targetId=targetId||'rel-body';
   if(!S.relDashFrom||!S.relDashTo){ const mb=monthBoundsStr(); S.relDashFrom=mb.from; S.relDashTo=mb.to; }
   if(!S.relDashPipelineId || !S.pipelines.some(p=>p.id===S.relDashPipelineId)) S.relDashPipelineId=(defaultPipeline()&&defaultPipeline().id)||'';
   const pipeline=pipelineById(S.relDashPipelineId);
@@ -1984,7 +1917,7 @@ function renderRelDash(){
   const recent=[...leads].sort((a,b)=>new Date(leadEffectiveDate(b)||0)-new Date(leadEffectiveDate(a)||0)).slice(0,8);
   const recentHtml=recent.length?recent.map(l=>`<div class="rl-item"><div class="avatar">${esc(ini(l.name||l.username))}</div><div class="rl-info"><div class="rl-name">${esc(l.name||l.username||'—')}</div><div class="rl-user">@${esc(l.username||'—')}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="badge" style="background:${stColor(l)}22;color:${stColor(l)}">${stShort(l)}</span><span class="rl-time">${timeAgo(leadEffectiveDate(l))}</span></div></div>`).join(''):'<div style="font-size:.74rem;color:var(--t3);padding:12px 0">Nenhum lead no período.</div>';
 
-  $('rel-body').innerHTML=`
+  $(targetId).innerHTML=`
     <div class="card" style="padding:20px;margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px">
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -2010,12 +1943,12 @@ function renderRelDash(){
       <div class="card"><div class="card-hd"><div class="card-title">Distribuição por Etapa</div></div><div class="card-bd"><div class="donut-wrap"><div class="donut-cw"><canvas id="rd-donut-chart" width="110" height="110"></canvas><div class="donut-center"><div class="donut-cv">${total}</div><div class="donut-cl">Leads</div></div></div><div class="donut-legend">${donutLgd}</div></div></div></div>
       <div class="card"><div class="card-hd"><div class="card-title">Leads do período</div></div><div class="card-bd" style="padding-top:6px">${recentHtml}</div></div>
     </div></div>`;
-  $('rd-from').onchange=e=>{ S.relDashFrom=e.target.value; renderRelDash(); };
-  $('rd-to').onchange=e=>{ S.relDashTo=e.target.value; renderRelDash(); };
-  const plSelEl=$('rd-pipeline'); if(plSelEl) plSelEl.onchange=e=>{ S.relDashPipelineId=e.target.value; renderRelDash(); };
+  $('rd-from').onchange=e=>{ S.relDashFrom=e.target.value; renderRelDash(targetId); };
+  $('rd-to').onchange=e=>{ S.relDashTo=e.target.value; renderRelDash(targetId); };
+  const plSelEl=$('rd-pipeline'); if(plSelEl) plSelEl.onchange=e=>{ S.relDashPipelineId=e.target.value; renderRelDash(targetId); };
   document.querySelectorAll('[data-rdpre]').forEach(b=>b.onclick=()=>{
     const mb=monthBoundsStr(b.dataset.rdpre==='lastmonth'?-1:0);
-    S.relDashFrom=mb.from; S.relDashTo=mb.to; renderRelDash();
+    S.relDashFrom=mb.from; S.relDashTo=mb.to; renderRelDash(targetId);
   });
   requestAnimationFrame(()=>{
     bindTimelineHover($('rd-tl-chart'), drawTimeline(tlData, $('rd-tl-chart')));
