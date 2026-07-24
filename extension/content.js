@@ -800,12 +800,12 @@
     if(pi){
       pi.addEventListener('input',e=>{S.phoneInput=e.target.value;});
       pi.addEventListener('keydown',e=>{if(e.key==='Enter')doConfirmPhone();});
-      setTimeout(()=>pi.focus(),50);
+      setTimeout(()=>pi.focus({preventScroll:true}),50);
     }
     const ni=shadow.getElementById('igp-notes-inp');
     if(ni){
       ni.addEventListener('input',e=>{S.notesInput=e.target.value;});
-      setTimeout(()=>ni.focus(),50);
+      setTimeout(()=>ni.focus({preventScroll:true}),50);
     }
     const nsel=shadow.getElementById('igp-notes-sel');
     if(nsel){
@@ -846,9 +846,14 @@
   function renderBody(focus) {
     const body=shadow.getElementById('igp-body');
     if(!body)return;
+    // Preserva a posição do scroll — sem isso, qualquer clique (mudar status,
+    // abrir observações, etc.) reconstrói a lista inteira e volta pro topo,
+    // perdendo o lugar de um lead que estava lá embaixo.
+    const prevScroll=body.scrollTop;
     const m=metrics();
     body.innerHTML=S.tab==='dash'?renderDash(m):S.tab==='leads'?renderLeads():S.tab==='contacts'?renderContacts(m):renderSettings(m);
     postRender(focus===undefined?'search':focus);
+    body.scrollTop=prevScroll;
     updateProfileBar();
     updateDirectBar();
   }
@@ -982,18 +987,22 @@
               ${l.profileUrl?`<a href="${esc(l.profileUrl)}" target="_blank" style="font-size:11px;color:#818cf8;text-decoration:none">@${esc(l.username||'')} ↗</a>`:l.username?`<span style="font-size:11px;color:#555">@${esc(l.username)}</span>`:''}
             </div>
             ${isContacted(l.status)&&l.phone?`
-              <div style="display:flex;align-items:center;gap:6px;margin-top:7px;padding:6px 10px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.2);border-radius:8px">
-                <span>📱</span><span style="font-weight:600;font-size:13px;color:#f472b6">${esc(l.phone)}</span>
-                ${wa?`<a href="${wa}" target="_blank" style="margin-left:auto;font-size:11px;color:#25d366;background:rgba(37,211,102,0.1);border:1px solid rgba(37,211,102,0.2);border-radius:6px;padding:2px 8px;text-decoration:none;font-weight:600">WhatsApp ↗</a>`:''}
-                ${S.agendorToken&&!l.agendorId&&agSt!=='ok'&&!l.agendorManual?`<button class="btn-agendor" data-a="sync-agendor" data-lid="${l.id}" style="margin-left:${wa?'0':'auto'}">${agSt==='syncing'?'⏳ Sync...':'☁ Agendor'}</button>${agSt!=='syncing'?`<button class="btn-sm" data-a="mark-agendor" data-lid="${l.id}" title="Marcar que já está no Agendor">✓ Já no Agendor</button>`:''}`:''}
-                ${l.agendorId||agSt==='ok'||l.agendorManual?`<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.2);border-radius:6px;padding:2px 8px">✓ Agendor</span>`:''}
+              <div style="margin-top:7px;padding:7px 10px;background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.2);border-radius:8px;display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;align-items:center;gap:6px"><span>📱</span><span style="font-weight:600;font-size:13px;color:#f472b6">${esc(l.phone)}</span></div>
+                ${wa||(S.agendorToken&&!l.agendorId&&agSt!=='ok'&&!l.agendorManual)||l.agendorId||agSt==='ok'||l.agendorManual?`
+                  <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${wa?`<a href="${wa}" target="_blank" style="font-size:11px;color:#25d366;background:rgba(37,211,102,0.1);border:1px solid rgba(37,211,102,0.2);border-radius:6px;padding:3px 8px;text-decoration:none;font-weight:600">WhatsApp ↗</a>`:''}
+                    ${S.agendorToken&&!l.agendorId&&agSt!=='ok'&&!l.agendorManual?`<button class="btn-agendor" data-a="sync-agendor" data-lid="${l.id}">${agSt==='syncing'?'⏳ Sync...':'☁ Agendor'}</button>${agSt!=='syncing'?`<button class="btn-sm" data-a="mark-agendor" data-lid="${l.id}" title="Marcar que já está no Agendor">✓ Já no Agendor</button>`:''}`:''}
+                    ${l.agendorId||agSt==='ok'||l.agendorManual?`<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.2);border-radius:6px;padding:3px 8px">✓ Agendor</span>`:''}
+                  </div>
+                `:''}
               </div>
             `:''}
-            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
+            <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;align-items:center">
               ${l.niche?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:#252525;color:#777">${esc(l.niche)}</span>`:''}
               ${l.mutualFriends?`<span style="font-size:11px;padding:2px 7px;border-radius:20px;background:rgba(129,140,248,0.1);color:#818cf8">👥 ${esc(l.mutualFriends)}</span>`:''}
+              <span data-a="edit-notes" data-lid="${l.id}" style="cursor:pointer;font-size:11px;padding:2px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:3px;${l.notes?'color:#a5b4fc;background:rgba(129,140,248,0.14)':'color:#444;background:#1a1a1a'}" title="${l.notes?'Ver observação':'Adicionar observação'}">${l.notes?'📝 Observação':'✎ Observação'}</span>
             </div>
-            ${l.notes?`<div style="font-size:11px;color:#555;margin-top:5px;line-height:1.4">${esc(l.notes)}</div>`:''}
             <div style="font-size:10px;color:#333;margin-top:5px;display:flex;gap:8px">
               <span>➕ ${fmtDate(l.addedAt)}</span>
               ${l.convertedAt?`<span style="color:rgba(244,114,182,0.5)">📱 ${fmtDate(l.convertedAt)}</span>`:''}
@@ -1010,13 +1019,10 @@
                 </div>
               `:''}
             </div>
-            ${l.agendorId||agSt==='ok'||l.agendorManual
+            ${isContacted(l.status)&&l.phone?'':(l.agendorId||agSt==='ok'||l.agendorManual
               ?`<button class="btn-sm" data-a="unmark-agendor" data-lid="${l.id}" style="color:#4ade80;border-color:rgba(74,222,128,0.3);font-size:10px" title="Clique para desmarcar">✓ Agendor</button>`
-              :`<button class="btn-sm" data-a="mark-agendor" data-lid="${l.id}" style="font-size:10px" title="Marcar que já está no Agendor">Agendor?</button>`}
-            <div style="display:flex;gap:2px">
-              <button data-a="edit-notes" data-lid="${l.id}" style="background:transparent;border:none;color:${l.notes?'#a5b4fc':'#333'};cursor:pointer;font-size:13px;line-height:1;padding:2px" title="Observações">✎</button>
-              <button data-a="del-lead" data-lid="${l.id}" style="background:transparent;border:none;color:#333;cursor:pointer;font-size:14px;line-height:1;padding:2px">✕</button>
-            </div>
+              :`<button class="btn-sm" data-a="mark-agendor" data-lid="${l.id}" style="font-size:10px" title="Marcar que já está no Agendor">Agendor?</button>`)}
+            <button data-a="del-lead" data-lid="${l.id}" style="background:transparent;border:none;color:#333;cursor:pointer;font-size:14px;line-height:1;padding:2px">✕</button>
           </div>
         </div>
         ${S.notesLeadId===l.id?`
