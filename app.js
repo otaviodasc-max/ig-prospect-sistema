@@ -1755,7 +1755,11 @@ function renderRelPay(){
   if(!S.members.length){ $('rel-body').innerHTML='<div class="card" style="padding:24px;text-align:center;color:var(--t3);font-size:.8rem">Nenhum membro na equipe ainda.</div>'; return; }
   const g=getGoals();
   if(!S.relPayFrom||!S.relPayTo){ const { ws,we }=weekRange(); S.relPayFrom=isoDate(ws); S.relPayTo=isoDate(new Date(we-1)); }
-  if(!S.relMemberId || !S.members.some(m=>m.id===S.relMemberId)) S.relMemberId=(S.session&&S.session.user&&S.session.user.id)||S.members[0].id;
+  // Padrão: quem está configurado em Configurações → "Quem deve receber o
+  // valor" (se a equipe tiver definido) — só cai pro usuário logado se a
+  // equipe não configurou ninguém específico. Sem isso, o dono via SEU
+  // próprio nome aqui mesmo quando quem recebe de verdade é outra pessoa.
+  if(!S.relMemberId || !S.members.some(m=>m.id===S.relMemberId)) S.relMemberId = (g.payRecipientId && S.members.some(m=>m.id===g.payRecipientId)) ? g.payRecipientId : ((S.session&&S.session.user&&S.session.user.id)||S.members[0].id);
   const from=new Date(S.relPayFrom+'T00:00:00');
   const toExcl=new Date(S.relPayTo+'T00:00:00'); toExcl.setDate(toExcl.getDate()+1);
   const rep=weekReport(from, toExcl, S.relMemberId);
@@ -1958,7 +1962,11 @@ function renderRelDash(targetId){
   let payCard='';
   if(inHeader && MOD().features.weeklyPay && S.members.length){
     if(!S.relPayFrom||!S.relPayTo){ const { ws,we }=weekRange(); S.relPayFrom=isoDate(ws); S.relPayTo=isoDate(new Date(we-1)); }
-    if(!S.relMemberId || !S.members.some(m=>m.id===S.relMemberId)) S.relMemberId=(S.session&&S.session.user&&S.session.user.id)||S.members[0].id;
+    // Mesma regra de padrão do Relatórios: prioriza quem está configurado em
+    // Configurações → "Quem deve receber o valor" — senão o dono via o
+    // PRÓPRIO nome aqui mesmo quando quem recebe de verdade é outra pessoa.
+    const payGoals=getGoals();
+    if(!S.relMemberId || !S.members.some(m=>m.id===S.relMemberId)) S.relMemberId = (payGoals.payRecipientId && S.members.some(m=>m.id===payGoals.payRecipientId)) ? payGoals.payRecipientId : ((S.session&&S.session.user&&S.session.user.id)||S.members[0].id);
     const payFrom=new Date(S.relPayFrom+'T00:00:00');
     const payToExcl=new Date(S.relPayTo+'T00:00:00'); payToExcl.setDate(payToExcl.getDate()+1);
     const payRep=weekReport(payFrom, payToExcl, S.relMemberId);
