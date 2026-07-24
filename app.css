@@ -52,6 +52,10 @@ canvas{display:block}
 .auth-logo .l2{font-size:.66rem;color:var(--t3);margin-top:1px}
 .auth-h{font-family:'Plus Jakarta Sans',sans-serif;font-size:1.4rem;font-weight:800;margin-bottom:6px}
 .auth-sub{font-size:.8rem;color:var(--t2);margin-bottom:22px;line-height:1.5}
+.auth-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px 0}
+.auth-loading .spinner{width:32px;height:32px;border-radius:50%;border:3px solid rgba(99,102,241,.2);border-top-color:#6366F1;animation:auth-spin .8s linear infinite}
+.auth-loading-txt{font-size:.82rem;font-weight:600;color:var(--t2);text-align:center}
+@keyframes auth-spin{to{transform:rotate(360deg)}}
 .field{margin-bottom:13px}
 .field label{font-size:.66rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px}
 .inp{width:100%;padding:11px 13px;background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);border-radius:var(--r10);color:var(--t1);font-size:.87rem;outline:none;transition:all .2s}

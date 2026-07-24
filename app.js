@@ -289,6 +289,10 @@ async function bulkDeleteCalls(){
 /* =====================================================================
    AUTH
 ===================================================================== */
+function authLoading(msg){
+  $('app').classList.remove('show'); $('onboard').classList.add('hidden'); $('org-select').classList.add('hidden'); $('auth').classList.remove('hidden');
+  $('auth-card').innerHTML = `<div class="auth-loading"><div class="spinner"></div><div class="auth-loading-txt">${esc(msg)}</div></div>`;
+}
 function renderAuth(){
   $('app').classList.remove('show'); $('onboard').classList.add('hidden'); $('auth').classList.remove('hidden');
   const cfgWarn = CONFIGURED ? '' : `<div class="cfg-warn">⚠️ Configure o <b>config.js</b> com a URL e a anon key do Supabase.</div>`;
@@ -3064,6 +3068,7 @@ async function boot(freshLogin){
   }
   const { data:org }=await sb.from('orgs').select('*').eq('id',prof.org_id).single(); S.org=org;
   if(S.org) unhideOrgHere(S.org.id); // virou a equipe ativa de novo → sai da lista de escondidas
+  if(org) authLoading(`Entrando na equipe de ${org.name}…`);
   await loadFeatures();
   await loadOrgConfig(); await loadLeads(); await normalizeEmpresarios(); await loadCalls(); await loadDeals(); await backfillEmpresarioDeals(); await loadMessages(); await loadMembers(); await loadWeeklyPayments(); renderShell();
   bindBridge();
