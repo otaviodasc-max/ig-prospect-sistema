@@ -2583,8 +2583,15 @@ function notePresetsModal(){
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="np-save">Salvar</button></div>
     </div></div>`);
   // Acordeão exclusivo: abrir uma etapa fecha as outras que estavam abertas.
+  // Ao fechar (manual ou por causa de outra abrindo), recalcula o contador
+  // na hora a partir do que está na textarea — sem precisar salvar e reabrir
+  // a modal pra ver que ficou 0.
   document.querySelectorAll('.np-acc').forEach(det=>{
-    det.addEventListener('toggle',()=>{ if(det.open) document.querySelectorAll('.np-acc').forEach(o=>{ if(o!==det) o.open=false; }); });
+    det.addEventListener('toggle',()=>{
+      if(det.open){ document.querySelectorAll('.np-acc').forEach(o=>{ if(o!==det) o.open=false; }); return; }
+      const ta=det.querySelector('.np-inp'), cnt=det.querySelector('.np-count');
+      if(ta&&cnt){ const n=ta.value.split('\n').map(x=>x.trim()).filter(Boolean).length; cnt.textContent=`· ${n} observaç${n===1?'ão':'ões'}`; }
+    });
   });
   $('np-save').onclick=async()=>{
     $('np-save').disabled=true;
