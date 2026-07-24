@@ -2547,7 +2547,17 @@ function stageEditorModal(title, stages, save){
 // personalização), então uma equipe com etapas diferentes vê e configura só
 // as etapas dela.
 function notePresetsModal(){
-  const section=(title,sub,stages,inputAttr)=>`<div style="margin-bottom:14px"><div class="stg-ri-t">${esc(title)}</div>${sub?`<div class="stg-ri-s" style="margin-bottom:8px">${esc(sub)}</div>`:''}<div style="display:flex;flex-direction:column;gap:10px">${stages.map(s=>`<div class="fld"><label>${esc(s.label)}</label><textarea class="stg-input np-inp" ${inputAttr(s)} placeholder="Uma observação por linha…" style="min-height:56px">${esc((s.notes||[]).join('\n'))}</textarea></div>`).join('')||'<div class="empty-sub">Nenhuma etapa ainda.</div>'}</div></div>`;
+  // Cada etapa vira um <details> fechado por padrão — a pessoa clica pra
+  // abrir só a que quer editar, em vez de ver todas as caixas de texto
+  // abertas de uma vez (lista enorme e difícil de achar a etapa certa).
+  const stageRow=(s,inputAttr)=>{
+    const cur=(s.notes||[]).filter(Boolean);
+    return `<details class="np-acc" style="border:1px solid var(--border2);border-radius:10px;overflow:hidden">
+      <summary style="padding:10px 12px;cursor:pointer;font-size:.79rem;font-weight:600;color:var(--t1);background:var(--surf2)">${esc(s.label)}${cur.length?` <span style="font-weight:400;color:var(--t3);font-size:.7rem">· ${cur.length} pronta${cur.length>1?'s':''}</span>`:''}</summary>
+      <div style="padding:10px 12px"><textarea class="stg-input np-inp" ${inputAttr(s)} placeholder="Uma observação por linha…" style="min-height:70px;width:100%;box-sizing:border-box">${esc(cur.join('\n'))}</textarea></div>
+    </details>`;
+  };
+  const section=(title,sub,stages,inputAttr)=>`<div style="margin-bottom:14px"><div class="stg-ri-t">${esc(title)}</div>${sub?`<div class="stg-ri-s" style="margin-bottom:8px">${esc(sub)}</div>`:''}<div style="display:flex;flex-direction:column;gap:8px">${stages.map(s=>stageRow(s,inputAttr)).join('')||'<div class="empty-sub">Nenhuma etapa ainda.</div>'}</div></div>`;
   const pipelinesHtml=S.pipelines.map(p=>section(`${p.icon||''} ${p.name}`.trim(),null,stagesOf(p),s=>`data-np-pl="${esc(p.id)}" data-np-stage="${esc(s.key)}"`)).join('');
   const dealsHtml=featOn('deals')?section('Etapas de Negociação','Usadas na aba Negociações',dealStagesRaw(),s=>`data-np-deal="${esc(s.key)}"`):'';
   openModal(`<div class="modal-ov"><div class="modal-box"><div class="modal-hd"><div><div class="modal-title">Observações pré-prontas</div><div class="modal-sub">Ao marcar um lead/negociação numa etapa, esses textos aparecem como sugestão clicável no campo Observações</div></div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
