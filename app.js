@@ -829,23 +829,27 @@ function dealStageNotePresets(stageKey){
   const s=dealStagesRaw().find(x=>x.key===stageKey);
   return (s&&Array.isArray(s.notes))?s.notes.filter(Boolean):[];
 }
-function noteChipsMarkup(list){
-  return list.map(n=>`<div class="period-tab" data-notechip="${esc(n)}">${esc(n)}</div>`).join('');
-}
-// Preenche um wrapper de chips (criado vazio no HTML inicial) e liga o clique
-// de cada chip pra inserir aquele texto na textarea de observações (sem
-// duplicar se já estiver lá, e sem apagar o que a pessoa já tinha digitado).
+// Preenche um wrapper (criado vazio no HTML inicial) com uma lista suspensa
+// das observações prontas da etapa atual — escolher uma opção insere aquele
+// texto na textarea de observações (sem duplicar se já estiver lá, sem
+// apagar o que a pessoa já tinha digitado, e a lista volta ao "placeholder"
+// pra poder escolher mais de uma).
 function refreshNoteChips(wrapId, textareaId, list){
   const box=$(wrapId); if(!box) return;
-  box.style.display=list.length?'flex':'none';
-  box.innerHTML=noteChipsMarkup(list);
-  box.querySelectorAll('[data-notechip]').forEach(ch=>ch.onclick=()=>{
-    const txt=ch.dataset.notechip; const ta=$(textareaId); if(!ta) return;
-    const lines=ta.value.split('\n').map(x=>x.trim()).filter(Boolean);
-    if(lines.includes(txt)) return;
-    ta.value=lines.concat(txt).join('\n');
-    ta.focus();
-  });
+  if(!list.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  box.innerHTML=`<select class="stg-input" id="${wrapId}-sel" style="width:100%;box-sizing:border-box"><option value="">Observação pronta…</option>${list.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}</select>`;
+  const sel=box.querySelector('select');
+  sel.onchange=()=>{
+    const txt=sel.value; if(!txt) return;
+    const ta=$(textareaId);
+    if(ta){
+      const lines=ta.value.split('\n').map(x=>x.trim()).filter(Boolean);
+      if(!lines.includes(txt)) ta.value=lines.concat(txt).join('\n');
+      ta.focus();
+    }
+    sel.value='';
+  };
 }
 function leadForm(id){
   const l=id?S.leads.find(x=>x.id===id):null;
@@ -880,7 +884,7 @@ function leadForm(id){
       ${pipelineField}
       <div class="fld"><label>Status</label><select id="f-status">${stOptsFor(curPl)}</select></div>
       ${extraHtml}
-      <div class="fld full"><label>Observações</label><textarea id="f-notes" placeholder="Notas…">${esc(l&&l.notes||'')}</textarea><div class="period-tabs" id="f-note-chips" style="flex-wrap:wrap;height:auto;margin-top:6px"></div></div>
+      <div class="fld full"><label>Observações</label><textarea id="f-notes" placeholder="Notas…">${esc(l&&l.notes||'')}</textarea><div id="f-note-chips" style="margin-top:6px"></div></div>
     </div>${agendorOn()&&!(l&&l.agendorPersonId)?`<label style="display:flex;align-items:center;gap:9px;margin-top:10px;padding:10px 12px;background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.2);border-radius:9px;cursor:pointer"><input type="checkbox" id="f-ag-exists" style="width:16px;height:16px;accent-color:#6EE7B7;cursor:pointer"><span style="font-size:.78rem;color:var(--t2)">☁ Lead já está no Agendor (não enviar novamente)</span></label>`:''}${dealsSection}</div>
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="f-save">${id?'Salvar':'Cadastrar'}</button></div></div></div>`);
   $('f-pipeline')&&($('f-pipeline').onchange=e=>{ const p=pipelineById(e.target.value); $('f-status').innerHTML=stOptsFor(p); refreshNoteChips('f-note-chips','f-notes',leadStageNotePresets(p,$('f-status').value)); });
@@ -1371,7 +1375,7 @@ function dealForm(id){
         <label>Data da venda/negociação</label>
         <input id="df-closeddate" type="date" value="${d.closedAt?isoDate(d.closedAt):''}">
       </div>
-      <div class="fld full"><label>Observações</label><textarea id="df-notes" placeholder="Anotações sobre a negociação…">${esc(d.notes||'')}</textarea><div class="period-tabs" id="df-note-chips" style="flex-wrap:wrap;height:auto;margin-top:6px"></div></div>
+      <div class="fld full"><label>Observações</label><textarea id="df-notes" placeholder="Anotações sobre a negociação…">${esc(d.notes||'')}</textarea><div id="df-note-chips" style="margin-top:6px"></div></div>
     </div>
     <label id="df-paid-wrap" style="display:${d.status===WON()?'flex':'none'};align-items:center;gap:10px;margin-top:12px;padding:11px 13px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:10px;cursor:pointer">
       <input type="checkbox" id="df-paid" ${d.commissionPaid?'checked':''} style="width:19px;height:19px;accent-color:#10B981;cursor:pointer">
@@ -2552,18 +2556,23 @@ function notePresetsModal(){
   // abertas de uma vez (lista enorme e difícil de achar a etapa certa).
   const stageRow=(s,inputAttr)=>{
     const cur=(s.notes||[]).filter(Boolean);
+    const n=cur.length;
     return `<details class="np-acc" style="border:1px solid var(--border2);border-radius:10px;overflow:hidden">
-      <summary style="padding:10px 12px;cursor:pointer;font-size:.79rem;font-weight:600;color:var(--t1);background:var(--surf2)">${esc(s.label)}${cur.length?` <span style="font-weight:400;color:var(--t3);font-size:.7rem">· ${cur.length} pronta${cur.length>1?'s':''}</span>`:''}</summary>
+      <summary style="padding:10px 12px;cursor:pointer;font-size:.79rem;font-weight:600;color:var(--t1);background:var(--surf2)">${esc(s.label)} <span style="font-weight:400;color:var(--t3);font-size:.7rem">· ${n} observaç${n===1?'ão':'ões'}</span></summary>
       <div style="padding:10px 12px"><textarea class="stg-input np-inp" ${inputAttr(s)} placeholder="Uma observação por linha…" style="min-height:70px;width:100%;box-sizing:border-box">${esc(cur.join('\n'))}</textarea></div>
     </details>`;
   };
   const section=(title,sub,stages,inputAttr)=>`<div style="margin-bottom:14px"><div class="stg-ri-t">${esc(title)}</div>${sub?`<div class="stg-ri-s" style="margin-bottom:8px">${esc(sub)}</div>`:''}<div style="display:flex;flex-direction:column;gap:8px">${stages.map(s=>stageRow(s,inputAttr)).join('')||'<div class="empty-sub">Nenhuma etapa ainda.</div>'}</div></div>`;
   const pipelinesHtml=S.pipelines.map(p=>section(`${p.icon||''} ${p.name}`.trim(),null,stagesOf(p),s=>`data-np-pl="${esc(p.id)}" data-np-stage="${esc(s.key)}"`)).join('');
   const dealsHtml=featOn('deals')?section('Etapas de Negociação','Usadas na aba Negociações',dealStagesRaw(),s=>`data-np-deal="${esc(s.key)}"`):'';
-  openModal(`<div class="modal-ov"><div class="modal-box"><div class="modal-hd"><div><div class="modal-title">Observações pré-prontas</div><div class="modal-sub">Ao marcar um lead/negociação numa etapa, esses textos aparecem como sugestão clicável no campo Observações</div></div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
+  openModal(`<div class="modal-ov"><div class="modal-box"><div class="modal-hd"><div><div class="modal-title">Observações pré-prontas</div><div class="modal-sub">Ao marcar um lead/negociação numa etapa, esses textos aparecem numa lista suspensa pra escolher no campo Observações</div></div><div class="x"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div>
     <div class="modal-bd">${pipelinesHtml}${dealsHtml}</div>
     <div class="modal-ft"><button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" id="np-save">Salvar</button></div>
     </div></div>`);
+  // Acordeão exclusivo: abrir uma etapa fecha as outras que estavam abertas.
+  document.querySelectorAll('.np-acc').forEach(det=>{
+    det.addEventListener('toggle',()=>{ if(det.open) document.querySelectorAll('.np-acc').forEach(o=>{ if(o!==det) o.open=false; }); });
+  });
   $('np-save').onclick=async()=>{
     $('np-save').disabled=true;
     const toList=v=>v.split('\n').map(x=>x.trim()).filter(Boolean);
